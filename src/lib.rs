@@ -1,4 +1,5 @@
 pub mod prelude;
+pub mod optimisers;
 use prelude::*;
 
 pub trait Manifold {
@@ -38,3 +39,6 @@ impl Manifold for EuclideanManifold {
         self.retraction(point, tangent_vector)
     }
 }
+
+pub struct SphereManifold;
+
