@@ -1,4 +1,5 @@
-use candle_core::{Tensor, Result};
+pub mod prelude;
+use prelude::*;
 
 pub trait Manifold {
     fn get_name(&self) -> &str;
@@ -18,8 +19,7 @@ pub trait Manifold {
     fn exponential_map(&self, point: Tensor, tangent_vector: Tensor) -> Result<Tensor>;
 }
 
-pub struct EuclideanManifold {
-}
+pub struct EuclideanManifold;
 
 impl Manifold for EuclideanManifold {
     fn get_name(&self) -> &str {
