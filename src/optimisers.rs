@@ -1,92 +1,42 @@
-use candle_core::{Result, Tensor, Var};
-use candle_nn::optim::Optimizer;
+use burn::optim::{LrDecayState, SimpleOptimizer};
+use burn::record::Record;
+use burn::LearningRate;
+use std::marker::PhantomData;
 
 use crate::manifolds::Manifold;
+use crate::prelude::*;
 
-/// Projection of x in the tangent space of the Stiefel manifold at the point a
-fn stiedel_projection(a: &Tensor, x: &Tensor) -> Result<Tensor> {
-    x-a.matmul(&x.transpose(2, 3)?)?.matmul(a)
-}
-
-/// StiefelOptimizer is an optimizer that applies the Stiefel manifold constraint
-/// It means that the parameters are constrained to be orthogonal matrices.
-pub struct StiefelOptimizer {
+#[derive(Clone)]
+pub struct ManifoldRGD<M: Manifold<B,D>, B: Backend, const D: usize> {
     learning_rate: f64,
-    vars: Vec<Var>,
+    _manifold: PhantomData<M>,
+    _backend: PhantomData<B>,
 }
 
-impl Optimizer for StiefelOptimizer {
-    type Config = f64;
-
-    fn new(vars: Vec<Var>, learning_rate: f64) -> Result<Self> {
-        let vars = vars
-            .into_iter()
-            .filter(|var| var.dtype().is_float())
-            .collect();
-        Ok(Self {
-            vars,
-            learning_rate,
-        })
-    }
-
-    fn learning_rate(&self) -> f64 {
-        self.learning_rate
-    }
-
-    fn step(&mut self, grads: &candle_core::backprop::GradStore) -> Result<()> {
-        for var in self.vars.iter() {
-            if let Some(grad) = grads.get(var) {
-                
-                let dir = stiedel_projection(var, grad)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn set_learning_rate(&mut self, lr: f64) {
-        self.learning_rate = lr
-    }
+#[derive(Record, Clone)]
+pub struct ManifoldRGDState<B: Backend, const D: usize> {
+    lr_decay: LrDecayState<B, D>,
 }
 
-pub struct ManfioldRGD<M: Manifold> {
-    learning_rate: f64,
-    vars: Vec<Var>,
-    _manifold: M,
-}
-
-impl<M: Manifold> Optimizer for ManfioldRGD<M> {
-    type Config = f64;
-
-    fn new(vars: Vec<Var>, learning_rate: f64) -> Result<Self> {
-        let vars = vars
-            .into_iter()
-            .filter(|var| var.dtype().is_float())
-            .collect();
-        Ok(Self {
-            learning_rate,
-            vars,
-            _manifold: M::new(),
-        })
+impl<M, B, const D: usize> SimpleOptimizer<B> for ManifoldRGD<M, B, D>
+where
+   M: Manifold<B, D>,
+   B: Backend,
+{
+    type State<const D2: usize> = ManifoldRGDState<B, D2>;
+    
+    fn step<const D2: usize>(
+            &self,
+            _lr: LearningRate,
+            _tensor: Tensor<B, D2>,
+            _grad: Tensor<B, D2>,
+            _state: Option<Self::State<D2>>,
+        ) -> (Tensor<B, D2>, Option<Self::State<D2>>) {
+        todo!()
     }
-
-    fn step(&mut self, grads: &candle_core::backprop::GradStore) -> Result<()> {
-        for var in self.vars.iter() {
-            if let Some(grad) = grads.get(var) {
-                let point = var;
-                let dir = self._manifold.project(point, grad)?;
-                let step = self.learning_rate;
-                let new_point = self._manifold.retract(point, &dir, step)?;
-                var.set(&new_point)?;
-            }
-        }
-        Ok(())
+    fn to_device<const D2: usize>(_state: Self::State<D2>, _device: &<B as Backend>::Device) -> Self::State<D2> {
+        todo!()
     }
+    
 
-    fn learning_rate(&self) -> f64 {
-        self.learning_rate
-    }
-
-    fn set_learning_rate(&mut self, lr: f64) {
-        self.learning_rate = lr;
-    }
 }

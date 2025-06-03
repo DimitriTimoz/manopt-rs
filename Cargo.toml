@@ -4,5 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-candle-core = "0.9"
-candle-nn = "0.9"
+burn = "0.17"
