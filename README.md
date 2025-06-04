@@ -110,12 +110,6 @@ Riemannian optimizers that respect manifold constraints:
 - 🚧 **Stiefel**: Matrices with orthonormal columns (in development)
 - 📋 **Planned**: Grassmann, Symmetric Positive Definite, Sphere
 
-## Running Tests
-
-```bash
-cargo test
-```
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
