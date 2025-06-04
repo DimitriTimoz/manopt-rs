@@ -24,7 +24,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-manopt-rs = "0.1.0"
+manopt-rs = "0.1"
 
 # Example with Burn backend
 burn = { version = "0.17", features = ["tch", "autodiff", "ndarray"] }
@@ -104,13 +104,13 @@ Riemannian optimizers that respect manifold constraints:
 - **RiemannianAdam**: Adam optimizer adapted for Riemannian manifolds
 - **ManifoldRGD**: Riemannian gradient descent
 
-## 🔬 Supported Manifolds
+## Supported Manifolds
 
 - ✅ **Euclidean**: Standard unconstrained optimization
 - 🚧 **Stiefel**: Matrices with orthonormal columns (in development)
 - 📋 **Planned**: Grassmann, Symmetric Positive Definite, Sphere
 
-## 🧪 Running Tests
+## Running Tests
 
 ```bash
 cargo test
