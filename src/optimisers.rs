@@ -110,7 +110,7 @@ where
 /// # Example
 ///
 /// ```rust
-/// use rust_manopt::prelude::*;
+/// use manopt_rs::prelude::*;
 ///
 /// let config = RiemannianAdamConfig::<Euclidean, burn::backend::NdArray>::new()
 ///     .with_lr(0.001)

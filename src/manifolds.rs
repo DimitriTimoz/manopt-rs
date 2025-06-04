@@ -21,7 +21,7 @@ pub use steifiel::SteifielsManifold;
 /// # Example Implementation
 ///
 /// ```rust
-/// use rust_manopt::prelude::*;
+/// use manopt_rs::prelude::*;
 ///
 /// #[derive(Clone)]
 /// struct MyManifold;

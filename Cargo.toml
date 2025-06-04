@@ -1,6 +1,6 @@
 [package]
 name = "manopt-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Dimitri Timoz <dimtiri.timoz@protonmail.com>"]
 description = "A high-performance Rust library for manifold optimization built on the Burn deep learning framework"
@@ -19,10 +19,11 @@ exclude = [
 ]
 
 [dependencies]
-burn = { version = "0.17", features = ["tch", "autodiff", "ndarray"] }
+burn = { version = "0.17" }
 
 [dev-dependencies]
-# Add any development dependencies here if needed
+# Enable ndarray in burn for dev dependencies
+burn = { version = "0.17", features = ["tch", "autodiff", "ndarray"] }
 
 [[example]]
 name = "optimization_demo"
