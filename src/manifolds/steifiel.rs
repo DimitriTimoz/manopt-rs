@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SteifielsManifold<B: Backend> {
     _backend: std::marker::PhantomData<B>,
 }
@@ -20,7 +20,7 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     fn project<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         let xtv = point.clone().transpose().matmul(direction.clone());
         let sym = (xtv.clone() + xtv.clone().transpose()) * 0.5;
-        direction.clone() - point.clone().matmul(sym)
+        direction - point.matmul(sym)
     }
 
     fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>, step: f64) -> Tensor<B, D> {
@@ -58,9 +58,9 @@ fn gram_schmidt<B: Backend, const D: usize>(v: &Tensor<B, D>) -> Tensor<B, D> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::{backend::{Autodiff, NdArray}, optim::SimpleOptimizer};
     
-    type TestBackend = NdArray;
+    type TestBackend = Autodiff<NdArray>;
     type TestTensor = Tensor<TestBackend, 2>;
     
     const TOLERANCE: f32 = 1e-6;
@@ -93,7 +93,7 @@ mod test {
                 }
             },
             (3, 1) => {
-                if data.len() >= 3 && data[0].len() >= 1 && data[1].len() >= 1 && data[2].len() >= 1 {
+                if data.len() >= 3 && !data[0].is_empty() && !data[1].is_empty() && !data[2].is_empty() {
                     Tensor::from_floats([
                         [data[0][0]],
                         [data[1][0]],
@@ -351,5 +351,54 @@ mod test {
         
         let retracted_gram = retracted.clone().transpose().matmul(retracted.clone());
         assert_tensor_close(&retracted_gram, &identity, TOLERANCE);
+    }
+
+    #[test]
+    fn test_optimiser() {
+        let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
+
+        let a = create_test_matrix(3, 3, vec![
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 1.0, 1.0,
+        ]);
+
+        let mut x = Tensor::<TestBackend, 2>::random([3,3], burn::tensor::Distribution::Normal(1., 1.), &a.device()).require_grad();        
+        for _i in 0..100 {
+            let loss = x.clone().transpose().matmul(a.clone()).matmul(x.clone()).sum();
+            let grads = loss.backward();
+            let x_grad = x.grad(&grads).unwrap();
+            // Convert gradient to autodiff backend and ensure independent tensor
+            let x_grad_data = x_grad.to_data();
+            let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad_data, &x.device());
+            // Clone x to ensure independent tensor for optimizer
+            let x_clone = x.clone();
+            let (new_x, _) = optimiser.step(0.1, x_clone, x_grad_ad, None);
+            x = new_x.detach().require_grad();
+            println!("Loss: {}", loss);
+        }
+        println!("Optimised tensor: {}", x);
+    }
+    
+    #[test]
+    fn test_simple_optimizer_step() {
+        let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
+        
+        // Create simple test tensors
+        let point = create_test_matrix(3, 2, vec![
+            1.0, 0.0,
+            0.0, 1.0,
+            0.0, 0.0,
+        ]);
+        
+        let grad = create_test_matrix(3, 2, vec![
+            0.1, 0.1,
+            0.1, 0.1,
+            0.1, 0.1,
+        ]);
+        
+        // Test one optimizer step
+        let (result, _) = optimiser.step(0.1, point, grad, None);
+  
     }
 }

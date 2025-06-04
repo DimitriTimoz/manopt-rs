@@ -1,5 +1,6 @@
 use burn::module::AutodiffModule;
-use burn::optim::{LrDecayState, Optimizer, SimpleOptimizer};
+use burn::optim::adaptor::OptimizerAdaptor;
+use burn::optim::{LrDecayState, SimpleOptimizer};
 use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
@@ -8,10 +9,42 @@ use std::marker::PhantomData;
 use crate::manifolds::Manifold;
 use crate::prelude::*;
 
-#[derive(Clone)]
-pub struct ManifoldRGD<M: Manifold<B>, B: Backend> {
-    manifold: PhantomData<M>,
+#[derive(Debug)]
+pub struct ManifoldRGDConfig<M, B> {
+    _manifold: PhantomData<M>,
     _backend: PhantomData<B>,
+}
+
+impl<M, B> Default for ManifoldRGDConfig<M, B>
+where
+    M: Manifold<B>,
+    B: Backend,
+{
+    fn default() -> Self {
+        Self {
+            _manifold: PhantomData,
+            _backend: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ManifoldRGD<M: Manifold<B>, B: Backend> {
+    _manifold: PhantomData<M>,
+    _backend: PhantomData<B>,
+}
+
+impl<M,B> Default for ManifoldRGD<M, B>
+where
+    M: Manifold<B>,
+    B: Backend,
+{
+    fn default() -> Self {
+        Self {
+            _manifold: PhantomData,
+            _backend: PhantomData,
+        }
+    }
 }
 
 #[derive(Record, Clone)]
@@ -44,25 +77,19 @@ where
     }
 }
 
+impl<M, B> ManifoldRGDConfig<M, B> 
+where
+    M: Manifold<B>,
+    B: Backend,
+{
+    pub fn init<Back: AutodiffBackend, Mod: AutodiffModule<Back>>(
+        &self,
+    ) -> OptimizerAdaptor<ManifoldRGD<M, Back::InnerBackend>, Mod, Back> 
+    where
+        M: Manifold<Back::InnerBackend>,
+    {
+        let optim = ManifoldRGD::<M, Back::InnerBackend>::default();
 
-// impl<M, B, const D: usize> Optimizer<M, B> for ManifoldRGD<M, B, D>
-// where
-//     M: AutodiffModule<B>,
-//     B: AutodiffBackend,
-//     M: Manifold<B, D>,
-//     B: Backend,
-// {
-//     type Record = ManifoldRGDState<B, D>;
-
-//     fn step(&mut self, lr: LearningRate, module: M, grads: burn::optim::GradientsParams) -> M {
-        
-//     }
-
-//     fn to_record(&self) -> Self::Record {
-//         todo!()
-//     }
-
-//     fn load_record(self, record: Self::Record) -> Self {
-//         todo!()
-//     }
-// }
+        OptimizerAdaptor::from(optim)
+    }
+}
