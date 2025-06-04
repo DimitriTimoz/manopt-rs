@@ -1,5 +1,5 @@
 use burn::optim::SimpleOptimizer;
-use rust_manopt::prelude::*;
+use manopt_rs::prelude::*;
 
 fn main() {
     // Configure the optimizer

@@ -1,7 +1,33 @@
 [package]
-name = "rust-manopt"
+name = "manopt-rs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Dimitri Timoz <dimtiri.timoz@protonmail.com>"]
+description = "A high-performance Rust library for manifold optimization built on the Burn deep learning framework"
+documentation = "https://docs.rs/manopt-rs"
+homepage = "https://github.com/DimitriTimoz/manopt-rs"
+repository = "https://github.com/DimitriTimoz/manopt-rs"
+license = "MIT"
+keywords = ["optimization", "manifold", "riemannian", "machine-learning", "mathematics"]
+categories = ["algorithms", "mathematics", "science"]
+readme = "README.md"
+exclude = [
+    "target/*",
+    ".git/*",
+    ".gitignore",
+    "examples/target/*"
+]
 
 [dependencies]
 burn = { version = "0.17", features = ["tch", "autodiff", "ndarray"] }
+
+[dev-dependencies]
+# Add any development dependencies here if needed
+
+[[example]]
+name = "optimization_demo"
+path = "examples/optimization_demo.rs"
+
+[[example]]
+name = "riemannian_adam_demo"
+path = "examples/riemannian_adam_demo.rs"

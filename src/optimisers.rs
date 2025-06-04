@@ -369,7 +369,7 @@ mod tests {
         let (new_tensor, state) = optimizer.step(1.0, tensor.clone(), grad, None);
 
         // Check that the tensor moved in the negative gradient direction
-        let scalar_value = new_tensor.slice([0..1]).into_scalar();
+        let scalar_value = new_tensor.slice([0; 1]).into_scalar();
         assert!(
             scalar_value < 0.0,
             "Should move in negative gradient direction"

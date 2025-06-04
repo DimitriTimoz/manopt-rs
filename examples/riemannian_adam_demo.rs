@@ -1,5 +1,5 @@
 use burn::optim::SimpleOptimizer;
-use rust_manopt::prelude::*;
+use manopt_rs::prelude::*;
 
 fn main() {
     println!("Testing Riemannian Adam optimizer...");
