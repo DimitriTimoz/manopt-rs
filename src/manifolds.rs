@@ -4,10 +4,15 @@
 //! Each manifold implements geometric operations like projection, retraction,
 //! exponential maps, and parallel transport.
 
+use std::{fmt::Debug, marker::PhantomData, ops::Deref};
+
 use crate::prelude::*;
 
 pub mod steifiel;
+use burn::{module::{AutodiffModule, ModuleDisplay}, tensor::backend::AutodiffBackend};
 pub use steifiel::SteifielsManifold;
+
+pub mod sphere;
 
 /// A Riemannian manifold defines the geometric structure for optimization.
 ///
@@ -134,5 +139,115 @@ impl<B: Backend> Manifold<B> for Euclidean {
 
     fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> bool {
         true
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Constrained<M, Man> {
+    module: M,
+    _manifold: PhantomData<Man>,
+}
+
+impl<B, M, Man> Module<B> for  Constrained<M, Man>
+where 
+    M: Module<B>,
+    B: Backend,
+    Man: Clone + Debug + Send,
+{
+    type Record = M::Record;
+
+    fn collect_devices(&self, devices: burn::module::Devices<B>) -> burn::module::Devices<B> {
+        self.module.collect_devices(devices)
+    }
+
+    fn fork(self, device: &B::Device) -> Self {
+        let module = self.module.fork(device);
+        Self {
+            module,
+            _manifold: PhantomData,
+        }
+    }
+
+    fn to_device(self, device: &B::Device) -> Self {
+        let module = self.module.to_device(device);
+        Self {
+            module,
+            _manifold: PhantomData,
+        }
+    }
+
+    fn visit<Visitor: burn::module::ModuleVisitor<B>>(&self, visitor: &mut Visitor) {
+        self.module.visit(visitor);
+    }
+
+    fn map<Mapper: burn::module::ModuleMapper<B>>(self, mapper: &mut Mapper) -> Self {
+        let module = self.module.map(mapper);
+        Self {
+            module,
+            _manifold: PhantomData,
+        }
+    }
+
+    fn load_record(self, record: Self::Record) -> Self {
+        let module = self.module.load_record(record);
+        Self {
+            module,
+            _manifold: PhantomData,
+        }
+    }
+
+    fn into_record(self) -> Self::Record {
+        self.module.into_record()
+    }
+}
+
+
+impl<B, M, Man> AutodiffModule<B> for  Constrained<M, Man>
+where 
+    M: AutodiffModule<B>,
+    B: AutodiffBackend,
+    Man: Clone + Debug + Send,
+{
+    type InnerModule = M::InnerModule;
+
+    fn valid(&self) -> Self::InnerModule {
+        self.module.valid()
+    }
+}
+
+impl<M, Man> burn::module::ModuleDisplayDefault for Constrained<M, Man>
+where 
+    M: burn::module::ModuleDisplayDefault,
+    Man: Clone + Debug + Send,
+{
+    fn content(&self, _content: burn::module::Content) -> Option<burn::module::Content> {
+        None
+    }
+}
+
+impl<M, Man> ModuleDisplay for  Constrained<M, Man>
+where 
+    M: ModuleDisplay,
+    Man: Clone + Debug + Send,
+{
+    fn format(&self, passed_settings: burn::module::DisplaySettings) -> String {
+        format!("Constrained<{}>", self.module.format(passed_settings))
+    }
+}
+
+impl<M, Man> Constrained<M, Man> {
+    pub fn new(module: M) -> Self {
+        Self {
+            module,
+            _manifold: PhantomData,
+        }
+    }
+}
+
+impl<M,Man> Deref for Constrained<M, Man> {
+    type Target = M;
+
+    fn deref(&self) -> &Self::Target {
+        &self.module
     }
 }

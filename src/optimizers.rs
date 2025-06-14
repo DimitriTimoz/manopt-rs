@@ -2,16 +2,12 @@
 //!
 //! This module provides Riemannian optimization algorithms that work on manifolds,
 //! extending classical optimization methods to handle geometric constraints.
-
 use burn::module::AutodiffModule;
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{LrDecayState, SimpleOptimizer};
+use burn::optim::{adaptor::OptimizerAdaptor, LrDecayState, SimpleOptimizer};
 use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
 use std::marker::PhantomData;
-
-use crate::manifolds::Manifold;
 use crate::prelude::*;
 
 #[derive(Debug)]

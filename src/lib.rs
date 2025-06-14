@@ -1,3 +1,3 @@
 pub mod manifolds;
-pub mod optimisers;
+pub mod optimizers;
 pub mod prelude;

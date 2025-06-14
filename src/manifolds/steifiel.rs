@@ -34,7 +34,7 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     }
 
     fn inner<const D: usize>(
-        _point: Tensor<B, D>,
+        _point: Tensor< B, D>,
         u: Tensor<B, D>,
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
