@@ -9,6 +9,7 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
 use std::marker::PhantomData;
 use crate::prelude::*;
+pub mod multiple;
 
 #[derive(Debug)]
 pub struct ManifoldRGDConfig<M, B> {

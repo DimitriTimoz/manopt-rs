@@ -20,8 +20,8 @@ impl<B: Backend> Manifold<B> for Sphere {
     }
 
     fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
+        _point: Tensor<B, D>,
+        _direction: Tensor<B, D>,
     ) -> Tensor<B, D> {
         todo!("Implement retract for Sphere manifold")
         
