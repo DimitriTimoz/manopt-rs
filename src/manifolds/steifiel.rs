@@ -403,7 +403,44 @@ mod test {
                 .matmul(x.clone())
                 .sum();
             let grads = loss.backward();
-            let x_grad = x.grad(&grads).unwrap();
+            let x_grad = x
+                .grad(&grads)
+                .expect("The gradients do exist we just did loss.backwards()");
+            // Convert gradient to autodiff backend and ensure independent tensor
+            let x_grad_data = x_grad.to_data();
+            let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad_data, &x.device());
+            // Clone x to ensure independent tensor for optimizer
+            let x_clone = x.clone();
+            let (new_x, _) = optimiser.step(0.1, x_clone, x_grad_ad, None);
+            x = new_x.detach().require_grad();
+            println!("Loss: {}", loss);
+        }
+        println!("Optimised tensor: {}", x);
+    }
+
+    #[test]
+    fn test_optimiser_remove() {
+        let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
+
+        let a = create_test_matrix(3, 3, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]);
+
+        let mut x = Tensor::<TestBackend, 2>::random(
+            [3, 3],
+            burn::tensor::Distribution::Normal(1., 1.),
+            &a.device(),
+        )
+        .require_grad();
+        for _i in 0..100 {
+            let loss = x
+                .clone()
+                .transpose()
+                .matmul(a.clone())
+                .matmul(x.clone())
+                .sum();
+            let mut grads = loss.backward();
+            let x_grad = x
+                .grad_remove(&mut grads)
+                .expect("The gradients do exist we just did loss.backwards()");
             // Convert gradient to autodiff backend and ensure independent tensor
             let x_grad_data = x_grad.to_data();
             let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad_data, &x.device());

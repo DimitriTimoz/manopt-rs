@@ -321,7 +321,9 @@ where
 
         // Compute denominator
         let denom = if self.config.amsgrad {
-            let max_exp_avg_sq = state.max_exp_avg_sq.as_ref().unwrap();
+            let max_exp_avg_sq = state.max_exp_avg_sq.as_ref().expect(
+                "On an initial None state, having config.amsgrad be True makes this maximum field set to 0. \
+                If there was an input state then it will be present because of earlier steps");
             let new_max = Tensor::max_pair(max_exp_avg_sq.clone(), state.exp_avg_sq.clone());
             state.max_exp_avg_sq = Some(new_max.clone());
             new_max.sqrt() + self.config.eps
@@ -470,10 +472,11 @@ mod tests {
 
         // Check that AMSGrad state is initialized
         assert!(state.is_some());
-        let state = state.unwrap();
+        let state =
+            state.expect("RiemannianAdam optimizer always gives back an initialized state on step");
         assert!(
             state.max_exp_avg_sq.is_some(),
-            "AMSGrad should initialize max_exp_avg_sq"
+            "AMSGrad should initialize max_exp_avg_sq. See the explanation around the compute denominator part of step"
         );
     }
 
@@ -512,13 +515,16 @@ mod tests {
         // First step
         let (tensor1, state1) = optimizer.step(1.0, tensor, grad.clone(), None);
         assert!(state1.is_some());
-        let state1 = state1.unwrap();
+        let state1 = state1.expect(
+            "RiemannianAdam optimizer always gives back an initialized state on step even with None initial state");
         assert_eq!(state1.step, 1);
 
         // Second step with state
         let (_, state2) = optimizer.step(1.0, tensor1, grad, Some(state1));
         assert!(state2.is_some());
-        let state2 = state2.unwrap();
+        let state2 = state2.expect(
+            "There was an input state so RiemannianAdam optimizer's step modifies that and returns it"
+        );
         assert_eq!(state2.step, 2);
     }
 }
