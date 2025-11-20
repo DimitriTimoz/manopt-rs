@@ -13,18 +13,13 @@ impl<B: Backend> Manifold<B> for Sphere {
         "Sphere"
     }
 
-    fn project<const D: usize>(_point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> 
-    {
+    fn project<const D: usize>(_point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
         // Y/||y|
-        vector.clone()/(vector.clone().transpose().matmul(vector)).sqrt()
+        vector.clone() / (vector.clone().transpose().matmul(vector)).sqrt()
     }
 
-    fn retract<const D: usize>(
-        _point: Tensor<B, D>,
-        _direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
+    fn retract<const D: usize>(_point: Tensor<B, D>, _direction: Tensor<B, D>) -> Tensor<B, D> {
         todo!("Implement retract for Sphere manifold")
-        
     }
 
     fn inner<const D: usize>(

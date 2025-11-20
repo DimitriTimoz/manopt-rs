@@ -1,10 +1,12 @@
-use burn::module::ModuleVisitor;
-use burn::nn::LinearConfig;
-use burn::nn::Linear;
 use burn::module::Module;
+use burn::module::ModuleVisitor;
+use burn::nn::Linear;
+use burn::nn::LinearConfig;
 
 use manopt_rs::manifolds::Constrained;
-use manopt_rs::optimizers::multiple::{MultiManifoldOptimizer, MultiManifoldOptimizerConfig, ManifoldOptimizable};
+use manopt_rs::optimizers::multiple::{
+    ManifoldOptimizable, MultiManifoldOptimizer, MultiManifoldOptimizerConfig,
+};
 use manopt_rs::prelude::*;
 
 // Example: User-defined custom manifold
@@ -33,7 +35,11 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
         new_point / norm
     }
 
-    fn inner<const D: usize>(_point: Tensor<B, D>, u: Tensor<B, D>, v: Tensor<B, D>) -> Tensor<B, D> {
+    fn inner<const D: usize>(
+        _point: Tensor<B, D>,
+        u: Tensor<B, D>,
+        v: Tensor<B, D>,
+    ) -> Tensor<B, D> {
         u * v
     }
 
@@ -43,9 +49,10 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
         point / norm
     }
 
-    fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> bool {
-        // For now, just return true - in a real implementation you'd check the constraint
-        true
+    fn is_in_manifold<const D: usize>(point: Tensor<B, D>) -> bool {
+        let r_squared = point.clone().powf_scalar(2.0).sum();
+        let one = Tensor::<B, 1>::from_floats([1.0], &<<B as Backend>::Device>::default());
+        r_squared.all_close(one, None, None)
     }
 }
 
@@ -53,7 +60,7 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
 pub struct TestModel<B: Backend> {
     // Euclidean constrained linear layer
     linear_euclidean: Constrained<Linear<B>, Euclidean>,
-    // Custom sphere constrained linear layer  
+    // Custom sphere constrained linear layer
     linear_sphere: Constrained<Linear<B>, CustomSphereManifold>,
     // Regular unconstrained linear layer
     linear_regular: Linear<B>,
@@ -125,7 +132,7 @@ impl<B: Backend> TestModel<B> {
         let linear_euclidean = LinearConfig::new(10, 5).init(device);
         let linear_sphere = LinearConfig::new(5, 3).init(device);
         let linear_regular = LinearConfig::new(3, 1).init(device);
-        
+
         Self {
             linear_euclidean: Constrained::new(linear_euclidean),
             linear_sphere: Constrained::new(linear_sphere),
@@ -138,12 +145,26 @@ struct ManifoldAwareVisitor;
 
 impl<B: Backend> ModuleVisitor<B> for ManifoldAwareVisitor {
     fn visit_float<const D: usize>(&mut self, id: burn::module::ParamId, tensor: &Tensor<B, D>) {
-        println!("Visiting parameter: {:?} with shape: {:?}", id, tensor.dims());
+        println!(
+            "Visiting parameter: {:?} with shape: {:?}",
+            id,
+            tensor.dims()
+        );
     }
 
-    fn visit_int<const D: usize>(&mut self, _id: burn::module::ParamId, _tensor: &Tensor<B, D, Int>) {}
+    fn visit_int<const D: usize>(
+        &mut self,
+        _id: burn::module::ParamId,
+        _tensor: &Tensor<B, D, Int>,
+    ) {
+    }
 
-    fn visit_bool<const D: usize>(&mut self, _id: burn::module::ParamId, _tensor: &Tensor<B, D, Bool>) {}
+    fn visit_bool<const D: usize>(
+        &mut self,
+        _id: burn::module::ParamId,
+        _tensor: &Tensor<B, D, Bool>,
+    ) {
+    }
 }
 
 fn main() {
@@ -151,53 +172,68 @@ fn main() {
     type AutoDiffBackend = burn::backend::Autodiff<MyBackend>;
 
     let device = Default::default();
-    
+
     // Create a model with mixed manifold constraints
     let model = TestModel::<AutoDiffBackend>::new(&device);
-    
+
     println!("=== Model Structure ===");
-    println!("Euclidean layer manifold: {}", model.linear_euclidean.manifold_name::<AutoDiffBackend>());
-    println!("Sphere layer manifold: {}", model.linear_sphere.manifold_name::<AutoDiffBackend>());
-    
+    println!(
+        "Euclidean layer manifold: {}",
+        model.linear_euclidean.manifold_name::<AutoDiffBackend>()
+    );
+    println!(
+        "Sphere layer manifold: {}",
+        model.linear_sphere.manifold_name::<AutoDiffBackend>()
+    );
+
     // Create multi-manifold optimizer
     let config = MultiManifoldOptimizerConfig::default();
     let mut optimizer = MultiManifoldOptimizer::new(config);
-    
+
     // Collect manifold information from the model
     optimizer.collect_manifolds(&model);
-    
+
     // Register custom manifold for specific parameters (if needed)
     optimizer.register_manifold::<CustomSphereManifold>("linear_sphere.weight".to_string());
-    
+
     println!("\n=== Manifold Information ===");
-    println!("Euclidean info: {:?}", model.linear_euclidean.get_manifold_info());
+    println!(
+        "Euclidean info: {:?}",
+        model.linear_euclidean.get_manifold_info()
+    );
     println!("Sphere info: {:?}", model.linear_sphere.get_manifold_info());
-    
+
     // Example of applying constraints
     let constrained_model = optimizer.apply_constraints(model);
-    
+
     // Visit the model to see parameter structure
     println!("\n=== Parameter Structure ===");
     let mut visitor = ManifoldAwareVisitor;
     constrained_model.visit(&mut visitor);
-    
+
     println!("\n=== Demonstrating Custom Manifold Operations ===");
-    
+
     // Show how the custom sphere manifold works
     let point = Tensor::<MyBackend, 1>::from_floats([3.0, 4.0, 0.0], &device);
     let vector = Tensor::<MyBackend, 1>::from_floats([1.0, 1.0, 1.0], &device);
-    
+
     println!("Original point: {:?}", point.to_data());
     println!("Original vector: {:?}", vector.to_data());
-    
+
     // Project point to sphere
     let projected_point = CustomSphereManifold::proj(point.clone());
     println!("Point projected to sphere: {:?}", projected_point.to_data());
-    
+
     // Project vector to tangent space
     let projected_vector = CustomSphereManifold::project(projected_point.clone(), vector);
-    println!("Vector projected to tangent space: {:?}", projected_vector.to_data());
-    
+    println!(
+        "Vector projected to tangent space: {:?}",
+        projected_vector.to_data()
+    );
+
     // Check if point is on manifold
-    println!("Is projected point on sphere? {}", CustomSphereManifold::is_in_manifold(projected_point));
+    println!(
+        "Is projected point on sphere? {}",
+        CustomSphereManifold::is_in_manifold(projected_point)
+    );
 }

@@ -9,7 +9,10 @@ use std::{fmt::Debug, marker::PhantomData};
 use crate::prelude::*;
 
 pub mod steifiel;
-use burn::{module::{AutodiffModule, ModuleDisplay}, tensor::backend::AutodiffBackend};
+use burn::{
+    module::{AutodiffModule, ModuleDisplay},
+    tensor::backend::AutodiffBackend,
+};
 pub use steifiel::SteifielsManifold;
 
 pub mod sphere;
@@ -56,10 +59,7 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
     fn name() -> &'static str;
 
     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D>;
-    fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D>;
+    fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D>;
 
     /// Convert Euclidean gradient to Riemannian gradient
     fn egrad2rgrad<const D: usize>(point: Tensor<B, D>, grad: Tensor<B, D>) -> Tensor<B, D> {
@@ -71,10 +71,7 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
         -> Tensor<B, D>;
 
     /// Exponential map: move from point along tangent vector u with step size
-    fn expmap<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
+    fn expmap<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         Self::retract(point, direction)
     }
 
@@ -122,10 +119,7 @@ impl<B: Backend> Manifold<B> for Euclidean {
         vector
     }
 
-    fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
+    fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         point + direction
     }
 
@@ -148,8 +142,8 @@ pub struct Constrained<M, Man> {
     _manifold: PhantomData<Man>,
 }
 
-impl<B, M, Man> Module<B> for  Constrained<M, Man>
-where 
+impl<B, M, Man> Module<B> for Constrained<M, Man>
+where
     M: Module<B>,
     B: Backend,
     Man: Clone + Debug + Send,
@@ -201,9 +195,8 @@ where
     }
 }
 
-
-impl<B, M, Man> AutodiffModule<B> for  Constrained<M, Man>
-where 
+impl<B, M, Man> AutodiffModule<B> for Constrained<M, Man>
+where
     M: AutodiffModule<B>,
     B: AutodiffBackend,
     Man: Clone + Debug + Send,
@@ -216,7 +209,7 @@ where
 }
 
 impl<M, Man> burn::module::ModuleDisplayDefault for Constrained<M, Man>
-where 
+where
     M: burn::module::ModuleDisplayDefault,
     Man: Clone + Debug + Send,
 {
@@ -225,8 +218,8 @@ where
     }
 }
 
-impl<M, Man> ModuleDisplay for  Constrained<M, Man>
-where 
+impl<M, Man> ModuleDisplay for Constrained<M, Man>
+where
     M: ModuleDisplay,
     Man: Clone + Debug + Send,
 {
@@ -242,19 +235,23 @@ impl<M, Man> Constrained<M, Man> {
             _manifold: PhantomData,
         }
     }
-    
+
     /// Get a reference to the inner module
     pub fn inner(&self) -> &M {
         &self.module
     }
-    
+
     /// Get a mutable reference to the inner module
     pub fn inner_mut(&mut self) -> &mut M {
         &mut self.module
     }
-    
+
     /// Apply manifold projection to a tensor - requires explicit Backend type
-    pub fn project_tensor<B, const D: usize>(&self, point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> 
+    pub fn project_tensor<B, const D: usize>(
+        &self,
+        point: Tensor<B, D>,
+        vector: Tensor<B, D>,
+    ) -> Tensor<B, D>
     where
         B: Backend,
         M: Module<B>,
@@ -262,9 +259,13 @@ impl<M, Man> Constrained<M, Man> {
     {
         Man::project(point, vector)
     }
-    
+
     /// Apply manifold retraction to a tensor - requires explicit Backend type
-    pub fn retract_tensor<B, const D: usize>(&self, point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D>
+    pub fn retract_tensor<B, const D: usize>(
+        &self,
+        point: Tensor<B, D>,
+        direction: Tensor<B, D>,
+    ) -> Tensor<B, D>
     where
         B: Backend,
         M: Module<B>,
@@ -272,9 +273,13 @@ impl<M, Man> Constrained<M, Man> {
     {
         Man::retract(point, direction)
     }
-    
+
     /// Convert Euclidean gradient to Riemannian gradient - requires explicit Backend type
-    pub fn euclidean_to_riemannian<B, const D: usize>(&self, point: Tensor<B, D>, grad: Tensor<B, D>) -> Tensor<B, D>
+    pub fn euclidean_to_riemannian<B, const D: usize>(
+        &self,
+        point: Tensor<B, D>,
+        grad: Tensor<B, D>,
+    ) -> Tensor<B, D>
     where
         B: Backend,
         M: Module<B>,
@@ -282,7 +287,7 @@ impl<M, Man> Constrained<M, Man> {
     {
         Man::egrad2rgrad(point, grad)
     }
-    
+
     /// Project point onto manifold - requires explicit Backend type
     pub fn project_to_manifold<B, const D: usize>(&self, point: Tensor<B, D>) -> Tensor<B, D>
     where
@@ -292,9 +297,9 @@ impl<M, Man> Constrained<M, Man> {
     {
         Man::proj(point)
     }
-    
+
     /// Get the manifold name
-    pub fn manifold_name<B>(&self) -> &'static str 
+    pub fn manifold_name<B>(&self) -> &'static str
     where
         B: Backend,
         Man: Manifold<B>,
@@ -306,11 +311,12 @@ impl<M, Man> Constrained<M, Man> {
 /// Trait for modules that have manifold constraints
 pub trait ConstrainedModule<B: Backend> {
     /// Apply manifold constraints to all parameters in the module
+    #[must_use]
     fn apply_manifold_constraints(self) -> Self;
-    
+
     /// Get information about the manifold constraints
     fn get_manifold_info(&self) -> std::collections::HashMap<String, String>;
-    
+
     /// Check if this module has manifold constraints
     fn has_manifold_constraints(&self) -> bool {
         true
@@ -327,7 +333,7 @@ where
     fn apply_manifold_constraints(self) -> Self {
         self
     }
-    
+
     fn get_manifold_info(&self) -> std::collections::HashMap<String, String> {
         let mut info = std::collections::HashMap::new();
         info.insert("manifold_type".to_string(), Man::name().to_string());

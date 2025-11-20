@@ -17,7 +17,7 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     }
 
     /// Project direction onto tangent space at point
-    /// For Stiefel manifold: P_X(Z) = Z - X(X^T Z + Z^T X)/2
+    /// For Stiefel manifold: `P_X(Z) = Z - X(X^T Z + Z^T X)/2`
     fn project<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         let xtd = point.clone().transpose().matmul(direction.clone());
         let dtx = direction.clone().transpose().matmul(point.clone());
@@ -25,16 +25,13 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
         direction - point.matmul(symmetric_part)
     }
 
-    fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
+    fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         let s = point + direction;
         gram_schmidt(&s)
     }
 
     fn inner<const D: usize>(
-        _point: Tensor< B, D>,
+        _point: Tensor<B, D>,
         u: Tensor<B, D>,
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
@@ -309,7 +306,7 @@ mod test {
 
         let step = 0.1;
         let retracted =
-            SteifielsManifold::<TestBackend>::retract(point.clone(), direction.clone()*step);
+            SteifielsManifold::<TestBackend>::retract(point.clone(), direction.clone() * step);
 
         // Check that the result has orthonormal columns
         let q1 = retracted.clone().slice([0..3, 0..1]);

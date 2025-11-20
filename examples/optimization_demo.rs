@@ -1,5 +1,5 @@
 use burn::optim::SimpleOptimizer;
-use manopt_rs::prelude::*;
+use manopt_rs::{optimizers::LessSimpleOptimizer, prelude::*};
 
 fn main() {
     // Configure the optimizer
@@ -39,9 +39,19 @@ fn main() {
         }
     }
 
+    println!("\nResult after 100:");
+    println!("x = {}", x);
+    println!("Target = {}", target);
+    let final_loss = (x.clone() - target.clone()).powf_scalar(2.0).sum();
+    println!("Loss after 100 = {}", final_loss);
+
+    // Perform optimization steps
+    (x, state) = optimizer.many_steps(|_| 1.0, 400, |x| (x - target.clone()) * 2.0, x, state);
+
     println!("\nFinal result:");
     println!("x = {}", x);
     println!("Target = {}", target);
     let final_loss = (x.clone() - target.clone()).powf_scalar(2.0).sum();
     println!("Final loss = {}", final_loss);
+    println!("State is set {}", state.is_some());
 }

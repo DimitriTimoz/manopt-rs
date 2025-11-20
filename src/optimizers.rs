@@ -2,14 +2,50 @@
 //!
 //! This module provides Riemannian optimization algorithms that work on manifolds,
 //! extending classical optimization methods to handle geometric constraints.
+use crate::prelude::*;
 use burn::module::AutodiffModule;
 use burn::optim::{adaptor::OptimizerAdaptor, LrDecayState, SimpleOptimizer};
 use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
 use std::marker::PhantomData;
-use crate::prelude::*;
 pub mod multiple;
+
+pub trait LessSimpleOptimizer<B: Backend>: SimpleOptimizer<B> {
+    fn many_steps<const D: usize>(
+        &self,
+        lr_function: impl FnMut(usize) -> LearningRate,
+        num_steps: usize,
+        grad_function: impl FnMut(Tensor<B, D>) -> Tensor<B, D>,
+        tensor: Tensor<B, D>,
+        state: Option<Self::State<D>>,
+    ) -> (Tensor<B, D>, Option<Self::State<D>>);
+}
+
+impl<B: Backend, T: SimpleOptimizer<B>> LessSimpleOptimizer<B> for T {
+    #[inline]
+    fn many_steps<const D: usize>(
+        &self,
+        mut lr_function: impl FnMut(usize) -> LearningRate,
+        num_steps: usize,
+        mut grad_function: impl FnMut(Tensor<B, D>) -> Tensor<B, D>,
+        mut tensor: Tensor<B, D>,
+        mut state: Option<Self::State<D>>,
+    ) -> (Tensor<B, D>, Option<Self::State<D>>) {
+        // Perform optimization steps
+        for step in 0..num_steps {
+            // Compute gradient at tensor
+            let cur_grad = grad_function(tensor.clone());
+            // The current learning rate for this step
+            let cur_lr = lr_function(step);
+            // Perform optimizer step
+            let (new_x, new_state) = self.step(cur_lr, tensor.clone(), cur_grad, state);
+            tensor = new_x;
+            state = new_state;
+        }
+        (tensor, state)
+    }
+}
 
 #[derive(Debug)]
 pub struct ManifoldRGDConfig<M, B> {
@@ -77,6 +113,7 @@ where
         _state: Self::State<D>,
         _device: &<B as Backend>::Device,
     ) -> Self::State<D> {
+        #[allow(clippy::used_underscore_binding)]
         _state
     }
 }
@@ -86,6 +123,7 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn init<Back: AutodiffBackend, Mod: AutodiffModule<Back>>(
         &self,
     ) -> OptimizerAdaptor<ManifoldRGD<M, Back::InnerBackend>, Mod, Back>
@@ -154,40 +192,48 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn with_lr(mut self, lr: f64) -> Self {
         self.lr = lr;
         self
     }
 
+    #[must_use]
     pub fn with_beta1(mut self, beta1: f64) -> Self {
         self.beta1 = beta1;
         self
     }
 
+    #[must_use]
     pub fn with_beta2(mut self, beta2: f64) -> Self {
         self.beta2 = beta2;
         self
     }
 
+    #[must_use]
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    #[must_use]
     pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
         self.weight_decay = weight_decay;
         self
     }
 
+    #[must_use]
     pub fn with_amsgrad(mut self, amsgrad: bool) -> Self {
         self.amsgrad = amsgrad;
         self
     }
 
+    #[must_use]
     pub fn with_stabilize(mut self, stabilize: Option<usize>) -> Self {
         self.stabilize = stabilize;
         self
@@ -205,6 +251,7 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn new(config: RiemannianAdamConfig<M, B>) -> Self {
         Self { config }
     }
@@ -269,7 +316,8 @@ where
             state.exp_avg.clone() * self.config.beta1 + rgrad.clone() * (1.0 - self.config.beta1);
 
         let inner_product = M::inner(tensor.clone(), rgrad.clone(), rgrad.clone());
-        state.exp_avg_sq = state.exp_avg_sq.clone() * self.config.beta2 + inner_product * (1.0 - self.config.beta2);
+        state.exp_avg_sq = state.exp_avg_sq.clone() * self.config.beta2
+            + inner_product * (1.0 - self.config.beta2);
 
         // Compute denominator
         let denom = if self.config.amsgrad {
@@ -282,7 +330,9 @@ where
         };
 
         // Bias correction
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let bias_correction1 = 1.0 - self.config.beta1.powi(state.step as i32);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let bias_correction2 = 1.0 - self.config.beta2.powi(state.step as i32);
         let step_size = learning_rate * bias_correction2.sqrt() / bias_correction1;
 
@@ -319,6 +369,7 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn init<Back: AutodiffBackend, Mod: AutodiffModule<Back>>(
         &self,
     ) -> OptimizerAdaptor<RiemannianAdam<M, Back::InnerBackend>, Mod, Back>

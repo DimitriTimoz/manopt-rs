@@ -20,7 +20,7 @@ fn main() {
     let (new_tensor, state) = optimizer.step(1.0, tensor.clone(), grad, None);
 
     println!("Original tensor: {}", tensor);
-    println!("New tensor: {}", new_tensor);
+    println!("New tensor: {:.4}", new_tensor);
     println!("State initialized: {}", state.is_some());
 
     println!("Riemannian Adam test completed successfully!");
