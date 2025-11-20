@@ -40,7 +40,7 @@ impl<B: Backend, T: SimpleOptimizer<B>> LessSimpleOptimizer<B> for T {
             let cur_lr = lr_function(step);
             // Perform optimizer step
             let (new_x, new_state) = self.step(cur_lr, tensor.clone(), cur_grad, state);
-            tensor = new_x;
+            tensor = new_x.detach().require_grad();
             state = new_state;
         }
         (tensor, state)
