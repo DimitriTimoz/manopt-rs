@@ -67,6 +67,8 @@ fn gram_schmidt<B: Backend, const D: usize>(v: &Tensor<B, D>) -> Tensor<B, D> {
 
 #[cfg(test)]
 mod test {
+    use crate::optimizers::LessSimpleOptimizer;
+
     use super::*;
     use burn::{
         backend::{Autodiff, NdArray},
@@ -450,6 +452,39 @@ mod test {
             x = new_x.detach().require_grad();
             println!("Loss: {}", loss);
         }
+        println!("Optimised tensor: {}", x);
+    }
+
+    #[test]
+    fn test_optimiser_many() {
+        let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
+
+        let a = create_test_matrix(3, 3, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]);
+
+        let mut x = Tensor::<TestBackend, 2>::random(
+            [3, 3],
+            burn::tensor::Distribution::Normal(1., 1.),
+            &a.device(),
+        )
+        .require_grad();
+
+        fn grad_fn(
+            x: Tensor<Autodiff<NdArray>, 2>,
+            a: Tensor<Autodiff<NdArray>, 2>,
+        ) -> Tensor<Autodiff<NdArray>, 2> {
+            let loss = x.clone().transpose().matmul(a).matmul(x.clone()).sum();
+            let mut grads = loss.backward();
+            let x_grad = x
+                .grad_remove(&mut grads)
+                .expect("The gradients do exist we just did loss.backwards()");
+            // Convert gradient to autodiff backend and ensure independent tensor
+            let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad.to_data(), &x.device());
+            x_grad_ad
+        }
+
+        let mut state = None;
+        (x, state) = optimiser.many_steps(|_| 0.1, 100, |x| grad_fn(x, a.clone()), x, state);
+        assert!(state.is_none());
         println!("Optimised tensor: {}", x);
     }
 
