@@ -9,46 +9,12 @@ use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
 use std::marker::PhantomData;
+pub mod many_steps;
 pub mod multiple;
-
-pub trait LessSimpleOptimizer<B: Backend>: SimpleOptimizer<B> {
-    fn many_steps<const D: usize>(
-        &self,
-        lr_function: impl FnMut(usize) -> LearningRate,
-        num_steps: usize,
-        grad_function: impl FnMut(Tensor<B, D>) -> Tensor<B, D>,
-        tensor: Tensor<B, D>,
-        state: Option<Self::State<D>>,
-    ) -> (Tensor<B, D>, Option<Self::State<D>>);
-}
-
-impl<B: Backend, T: SimpleOptimizer<B>> LessSimpleOptimizer<B> for T {
-    #[inline]
-    fn many_steps<const D: usize>(
-        &self,
-        mut lr_function: impl FnMut(usize) -> LearningRate,
-        num_steps: usize,
-        mut grad_function: impl FnMut(Tensor<B, D>) -> Tensor<B, D>,
-        mut tensor: Tensor<B, D>,
-        mut state: Option<Self::State<D>>,
-    ) -> (Tensor<B, D>, Option<Self::State<D>>) {
-        // Perform optimization steps
-        for step in 0..num_steps {
-            // Compute gradient at tensor
-            let cur_grad = grad_function(tensor.clone());
-            // The current learning rate for this step
-            let cur_lr = lr_function(step);
-            // Perform optimizer step
-            let (new_x, new_state) = self.step(cur_lr, tensor.clone(), cur_grad, state);
-            tensor = new_x.detach().require_grad();
-            state = new_state;
-        }
-        (tensor, state)
-    }
-}
+pub use many_steps::LessSimpleOptimizer;
 
 #[derive(Debug)]
-pub struct ManifoldRGDConfig<M, B> {
+pub struct ManifoldRGDConfig<M: Manifold<B>, B: Backend> {
     _manifold: PhantomData<M>,
     _backend: PhantomData<B>,
 }
@@ -110,11 +76,17 @@ where
     }
 
     fn to_device<const D: usize>(
-        _state: Self::State<D>,
-        _device: &<B as Backend>::Device,
+        state: Self::State<D>,
+        device: &<B as Backend>::Device,
     ) -> Self::State<D> {
-        #[allow(clippy::used_underscore_binding)]
-        _state
+        const DECAY_STATE_TO_DEVICE: bool = false;
+        if DECAY_STATE_TO_DEVICE {
+            ManifoldRGDState {
+                lr_decay: state.lr_decay.to_device(device),
+            }
+        } else {
+            state
+        }
     }
 }
 
@@ -155,7 +127,7 @@ where
 ///     .with_amsgrad(true);
 /// ```
 #[derive(Debug, Clone)]
-pub struct RiemannianAdamConfig<M, B> {
+pub struct RiemannianAdamConfig<M: Manifold<B>, B: Backend> {
     pub lr: f64,
     pub beta1: f64,
     pub beta2: f64,

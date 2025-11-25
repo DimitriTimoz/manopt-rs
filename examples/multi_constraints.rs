@@ -3,7 +3,7 @@ use burn::module::ModuleVisitor;
 use burn::nn::Linear;
 use burn::nn::LinearConfig;
 
-use manopt_rs::manifolds::Constrained;
+use manopt_rs::constrained_module::Constrained;
 use manopt_rs::optimizers::multiple::{
     ManifoldOptimizable, MultiManifoldOptimizer, MultiManifoldOptimizerConfig,
 };
@@ -53,6 +53,12 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
         let r_squared = point.clone().powf_scalar(2.0).sum();
         let one = Tensor::<B, 1>::from_floats([1.0], &<<B as Backend>::Device>::default());
         r_squared.all_close(one, None, None)
+    }
+
+    fn is_tangent_at<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> bool {
+        let dot_product = (point * vector).sum();
+        let zero = Tensor::<B, 1>::from_floats([0.0], &<<B as Backend>::Device>::default());
+        dot_product.all_close(zero, None, Some(1e-6))
     }
 }
 
@@ -234,6 +240,12 @@ fn main() {
     // Check if point is on manifold
     println!(
         "Is projected point on sphere? {}",
-        CustomSphereManifold::is_in_manifold(projected_point)
+        CustomSphereManifold::is_in_manifold(projected_point.clone())
+    );
+
+    // Check if vector is tangent at point on manifold
+    println!(
+        "Is projected vector tangent to point on sphere? {}",
+        CustomSphereManifold::is_tangent_at(projected_point, projected_vector)
     );
 }

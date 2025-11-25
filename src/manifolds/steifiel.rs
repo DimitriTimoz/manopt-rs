@@ -483,15 +483,43 @@ mod test {
         }
 
         let mut state = None;
+        let x_original: Tensor<NdArray, 2> =
+            Tensor::<NdArray, 2>::from_data(x.to_data(), &Default::default());
+        let a_original: Tensor<NdArray, 2> =
+            Tensor::<NdArray, 2>::from_data(a.to_data(), &Default::default());
+        let unoptimised_loss = x_original
+            .clone()
+            .transpose()
+            .matmul(a_original.clone())
+            .matmul(x_original.clone())
+            .sum()
+            .into_scalar();
+        println!(
+            "Unoptimised tensor: {} with loss {}",
+            x_original, unoptimised_loss
+        );
         (x, state) = optimiser.many_steps(|_| 0.1, 100, |x| grad_fn(x, a.clone()), x, state);
         assert!(state.is_none());
-        println!("Optimised tensor: {}", x);
+        let x_optimised: Tensor<NdArray, 2> =
+            Tensor::<NdArray, 2>::from_data(x.to_data(), &Default::default());
+        let optimised_loss = x_optimised
+            .clone()
+            .transpose()
+            .matmul(a_original)
+            .matmul(x_optimised.clone())
+            .sum()
+            .into_scalar();
+        println!(
+            "Optimised tensor: {} with loss {}",
+            x_optimised, optimised_loss
+        );
+        assert!(optimised_loss <= unoptimised_loss,
+            "The optimimisation should have lowered the loss function. It was {unoptimised_loss} before and {optimised_loss} after");
     }
 
     #[test]
     fn test_simple_optimizer_step() {
         let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
-
         // Create simple test tensors
         let point = create_test_matrix(3, 2, vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
 

@@ -1,6 +1,5 @@
 use crate::prelude::*;
 
-/// Euclidean manifold - the simplest case where no projection is needed
 #[derive(Clone, Debug)]
 pub struct Sphere;
 

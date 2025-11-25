@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 
 use burn::module::Module;
 
-use crate::manifolds::Constrained;
+use crate::constrained_module::Constrained;
 use crate::prelude::*;
 
 /// Multi-manifold optimizer configuration
