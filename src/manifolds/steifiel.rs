@@ -1,3 +1,5 @@
+use burn::tensor::cast::ToElement;
+
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Default)]
@@ -6,6 +8,10 @@ pub struct SteifielsManifold<B: Backend> {
 }
 
 impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
+    type PointOnManifold<const D: usize> = Tensor<B, 2>;
+
+    type TangentVectorWithoutPoint<const D: usize> = Tensor<B, 2>;
+
     fn new() -> Self {
         SteifielsManifold {
             _backend: std::marker::PhantomData,
@@ -37,6 +43,14 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     ) -> Tensor<B, D> {
         // For Stiefel manifold, we use the standard Euclidean inner product
         u * v
+    }
+
+    fn is_tangent_at<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> bool {
+        let xtv = point.clone().transpose().matmul(vector.clone());
+        let vtx = vector.clone().transpose().matmul(point.clone());
+        let skew = xtv + vtx.transpose();
+        let max_skew = skew.abs().max().into_scalar();
+        max_skew.to_f64() < 1e-6
     }
 }
 
@@ -296,6 +310,10 @@ mod test {
             "Tangent space property violated: max skew = {}",
             max_skew
         );
+        assert!(
+            SteifielsManifold::is_tangent_at(point, tangent),
+            "Tangent space property violated: max skew unknown"
+        )
     }
 
     #[test]

@@ -14,6 +14,9 @@ use manopt_rs::prelude::*;
 pub struct CustomSphereManifold;
 
 impl<B: Backend> Manifold<B> for CustomSphereManifold {
+    type PointOnManifold<const D: usize> = Tensor<B, 1>;
+    type TangentVectorWithoutPoint<const D: usize> = Tensor<B, 1>;
+
     fn new() -> Self {
         Self
     }
@@ -51,13 +54,13 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
 
     fn is_in_manifold<const D: usize>(point: Tensor<B, D>) -> bool {
         let r_squared = point.clone().powf_scalar(2.0).sum();
-        let one = Tensor::<B, 1>::from_floats([1.0], &<<B as Backend>::Device>::default());
+        let one = Tensor::<B, 1>::from_floats([1.0], &r_squared.device());
         r_squared.all_close(one, None, None)
     }
 
     fn is_tangent_at<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> bool {
         let dot_product = (point * vector).sum();
-        let zero = Tensor::<B, 1>::from_floats([0.0], &<<B as Backend>::Device>::default());
+        let zero = Tensor::<B, 1>::from_floats([0.0], &dot_product.device());
         dot_product.all_close(zero, None, Some(1e-6))
     }
 }

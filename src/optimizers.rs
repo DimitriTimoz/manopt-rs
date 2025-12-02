@@ -9,6 +9,7 @@ use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
 use std::marker::PhantomData;
+pub mod hessian_optimizer;
 pub mod many_steps;
 pub mod multiple;
 pub use many_steps::LessSimpleOptimizer;

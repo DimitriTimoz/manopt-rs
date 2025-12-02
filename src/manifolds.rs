@@ -32,6 +32,9 @@ pub use sphere::Sphere;
 /// struct MyManifold;
 ///
 /// impl<B: Backend> Manifold<B> for MyManifold {
+///     type PointOnManifold<const D: usize> = Tensor<B, 1>;
+///    
+///     type TangentVectorWithoutPoint<const D: usize> = Tensor<B,1>;
 ///     fn new() -> Self { MyManifold }
 ///     fn name() -> &'static str { "MyManifold" }
 ///     
@@ -52,27 +55,36 @@ pub use sphere::Sphere;
 /// }
 /// ```
 pub trait Manifold<B: Backend>: Clone + Send + Sync {
+    type PointOnManifold<const D: usize>;
+    type TangentVectorWithoutPoint<const D: usize>;
+
     fn new() -> Self;
     fn name() -> &'static str;
 
+    /// Project `vector` to the tangent space at `point`
     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D>;
+
+    // Move along the manifold from `point` along the tangent vector `direction` with step size
     fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D>;
 
-    /// Convert Euclidean gradient to Riemannian gradient
+    /// Convert Euclidean gradient `grad` to Riemannian gradient at `point`
     fn egrad2rgrad<const D: usize>(point: Tensor<B, D>, grad: Tensor<B, D>) -> Tensor<B, D> {
         Self::project(point, grad)
     }
 
-    /// Riemannian inner product at a given point
+    /// Riemannian inner product at a given `point`
+    /// `u` and `v` are in the tangent space at `point`
     fn inner<const D: usize>(point: Tensor<B, D>, u: Tensor<B, D>, v: Tensor<B, D>)
         -> Tensor<B, D>;
 
-    /// Exponential map: move from point along tangent vector u with step size
+    /// Exponential map: move from `point` along tangent vector `direction` with step size
     fn expmap<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         Self::retract(point, direction)
     }
 
-    /// Parallel transport of tangent vector from point1 to point2
+    /// Parallel transport of a tangent vector `tangent` from `point1` to `point2`
+    /// By default, this is not accurately implemented and ignores the metric/connection
+    /// just projecting to the tangent space.
     fn parallel_transport<const D: usize>(
         _point1: Tensor<B, D>,
         point2: Tensor<B, D>,
@@ -82,25 +94,25 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
         Self::project_tangent(point2, tangent)
     }
 
-    /// Project vector to tangent space at point
+    /// Project `vector` to the tangent space at `point`
     fn project_tangent<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
         Self::project(point, vector)
     }
 
-    /// Project point onto manifold
+    /// Project `point` onto manifold
     fn proj<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D> {
         point
     }
 
-    /// Check if a point is in the manifold.
-    /// By default, this is not implemented and returns `false`.
+    /// Check if a `point` is in the manifold.
+    /// By default, this is not accurately implemented and returns `false`.
     fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> bool {
         false
     }
 
-    /// Check if a vector is in the tangent space at point
-    /// given that point is in the manifold.
-    /// By default, this is not implemented and returns `false`.
+    /// Check if a `vector` is in the tangent space at `point`
+    /// given that `point` is in the manifold.
+    /// By default, this is not accurately implemented and returns `false`.
     fn is_tangent_at<const D: usize>(_point: Tensor<B, D>, _vector: Tensor<B, D>) -> bool {
         false
     }
@@ -111,6 +123,9 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
 pub struct Euclidean;
 
 impl<B: Backend> Manifold<B> for Euclidean {
+    type PointOnManifold<const D: usize> = Tensor<B, 1>;
+
+    type TangentVectorWithoutPoint<const D: usize> = Tensor<B, 1>;
     fn new() -> Self {
         Self
     }
@@ -132,7 +147,7 @@ impl<B: Backend> Manifold<B> for Euclidean {
         u: Tensor<B, D>,
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
-        u * v
+        (u * v).sum_dim(D - 1)
     }
 
     fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> bool {
