@@ -1,5 +1,3 @@
-use burn::tensor::cast::ToElement;
-
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Default)]
@@ -8,9 +6,7 @@ pub struct SteifielsManifold<B: Backend> {
 }
 
 impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
-    type PointOnManifold<const D: usize> = Tensor<B, 2>;
-
-    type TangentVectorWithoutPoint<const D: usize> = Tensor<B, 2>;
+    const RANK_PER_POINT: usize = 2;
 
     fn new() -> Self {
         SteifielsManifold {
@@ -32,8 +28,23 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     }
 
     fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
-        let s = point + direction;
-        gram_schmidt(&s)
+        debug_assert!(point.dims().len() >= Self::RANK_PER_POINT);
+        debug_assert!(direction.dims().len() >= Self::RANK_PER_POINT);
+        let mut s = point + direction;
+        if s.dims().len() > Self::RANK_PER_POINT {
+            // Gram_schmidt as written does so on the first two coordinates
+            // unlike Matrix multiplication and the rest of tensor operations
+            // which is assuming the last two coordinates
+            // and the first bunch being channels instead of vice versa
+            s = s.swap_dims(0, D - 2);
+            s = s.swap_dims(1, D - 1);
+            s = gram_schmidt(&s);
+            s = s.swap_dims(1, D - 1);
+            s = s.swap_dims(0, D - 2);
+            s
+        } else {
+            gram_schmidt(&s)
+        }
     }
 
     fn inner<const D: usize>(
@@ -42,15 +53,26 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
         // For Stiefel manifold, we use the standard Euclidean inner product
-        u * v
+        (u * v).sum_dim(D - 1).sum_dim(D - 2)
     }
 
-    fn is_tangent_at<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> bool {
+    fn is_tangent_at<const D: usize>(
+        point: Tensor<B, D>,
+        vector: Tensor<B, D>,
+    ) -> Tensor<B, D, burn::tensor::Bool> {
         let xtv = point.clone().transpose().matmul(vector.clone());
         let vtx = vector.clone().transpose().matmul(point.clone());
         let skew = xtv + vtx.transpose();
-        let max_skew = skew.abs().max().into_scalar();
-        max_skew.to_f64() < 1e-6
+        let max_skew = skew.clone().abs().max_dim(D - 1).max_dim(D - 2);
+        max_skew.lower_elem(1e-6)
+    }
+
+    fn proj<const D: usize>(_point: Tensor<B, D>) -> Tensor<B, D> {
+        todo!()
+    }
+
+    fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> Tensor<B, D, burn::tensor::Bool> {
+        todo!()
     }
 }
 
@@ -311,7 +333,7 @@ mod test {
             max_skew
         );
         assert!(
-            SteifielsManifold::is_tangent_at(point, tangent),
+            SteifielsManifold::is_tangent_at(point, tangent).into_scalar(),
             "Tangent space property violated: max skew unknown"
         )
     }

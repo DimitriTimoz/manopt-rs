@@ -14,8 +14,7 @@ use manopt_rs::prelude::*;
 pub struct CustomSphereManifold;
 
 impl<B: Backend> Manifold<B> for CustomSphereManifold {
-    type PointOnManifold<const D: usize> = Tensor<B, 1>;
-    type TangentVectorWithoutPoint<const D: usize> = Tensor<B, 1>;
+    const RANK_PER_POINT: usize = 1;
 
     fn new() -> Self {
         Self
@@ -27,14 +26,21 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
 
     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
         // For sphere: project vector orthogonal to point
-        let dot_product = (point.clone() * vector.clone()).sum();
-        vector - point * dot_product.unsqueeze()
+        debug_assert!(point.shape() == vector.shape());
+        let dot_product =
+            (point.clone() * vector.clone()).sum_dim(D - <Self as Manifold<B>>::RANK_PER_POINT);
+        vector - point * dot_product
     }
 
     fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         // For sphere: normalize the result
+        debug_assert!(point.shape() == direction.shape());
         let new_point = point + direction;
-        let norm = new_point.clone().powf_scalar(2.0).sum().sqrt().unsqueeze();
+        let norm = new_point
+            .clone()
+            .powf_scalar(2.0)
+            .sum_dim(D - <Self as Manifold<B>>::RANK_PER_POINT)
+            .sqrt();
         new_point / norm
     }
 
@@ -43,25 +49,34 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
         u: Tensor<B, D>,
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
-        u * v
+        (u * v).sum_dim(D - <Self as Manifold<B>>::RANK_PER_POINT)
     }
 
     fn proj<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D> {
         // Project point onto unit sphere
-        let norm = point.clone().powf_scalar(2.0).sum().sqrt().unsqueeze();
+        let norm = point
+            .clone()
+            .powf_scalar(2.0)
+            .sum_dim(D - <Self as Manifold<B>>::RANK_PER_POINT)
+            .sqrt();
         point / norm
     }
 
-    fn is_in_manifold<const D: usize>(point: Tensor<B, D>) -> bool {
-        let r_squared = point.clone().powf_scalar(2.0).sum();
-        let one = Tensor::<B, 1>::from_floats([1.0], &r_squared.device());
-        r_squared.all_close(one, None, None)
+    fn is_in_manifold<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D, Bool> {
+        let r_squared = point
+            .powf_scalar(2.0)
+            .sum_dim(D - <Self as Manifold<B>>::RANK_PER_POINT);
+        let one = r_squared.ones_like();
+        r_squared.is_close(one, None, None)
     }
 
-    fn is_tangent_at<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> bool {
-        let dot_product = (point * vector).sum();
-        let zero = Tensor::<B, 1>::from_floats([0.0], &dot_product.device());
-        dot_product.all_close(zero, None, Some(1e-6))
+    fn is_tangent_at<const D: usize>(
+        point: Tensor<B, D>,
+        vector: Tensor<B, D>,
+    ) -> Tensor<B, D, Bool> {
+        let dot_product = (point * vector).sum_dim(D - <Self as Manifold<B>>::RANK_PER_POINT);
+        let zeros = dot_product.zeros_like();
+        dot_product.is_close(zeros, None, Some(1e-6))
     }
 }
 

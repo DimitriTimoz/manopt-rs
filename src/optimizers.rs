@@ -288,7 +288,7 @@ where
         state.exp_avg =
             state.exp_avg.clone() * self.config.beta1 + rgrad.clone() * (1.0 - self.config.beta1);
 
-        let inner_product = M::inner(tensor.clone(), rgrad.clone(), rgrad.clone());
+        let inner_product = M::inner::<D>(tensor.clone(), rgrad.clone(), rgrad.clone());
         state.exp_avg_sq = state.exp_avg_sq.clone() * self.config.beta2
             + inner_product * (1.0 - self.config.beta2);
 
