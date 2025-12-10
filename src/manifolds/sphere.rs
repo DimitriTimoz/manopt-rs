@@ -14,6 +14,27 @@ impl<B: Backend> Manifold<B> for Sphere {
         "Sphere"
     }
 
+    fn specific_name(s: &Shape) -> String {
+        let num_dims = s.num_dims();
+        assert!(
+            num_dims > 0,
+            "There is at least one dimension where the manifold actually lives"
+        );
+        let sphere_dim = *s
+            .dims
+            .last()
+            .expect("There is at least one dimension where the manifold actually lives");
+        let (channel_dims, _) = s.dims.split_at(num_dims - 1);
+        if channel_dims.is_empty() {
+            format!("Sphere S^{} subset R^{sphere_dim}", sphere_dim - 1)
+        } else {
+            format!(
+                "{channel_dims:?} Channels worth of points in Sphere S^{} subset R^{sphere_dim}",
+                sphere_dim - 1
+            )
+        }
+    }
+
     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
         // For sphere: project vector orthogonal to point
         let dot_product = (point.clone() * vector.clone()).sum_dim(D - 1);
@@ -54,6 +75,11 @@ impl<B: Backend> Manifold<B> for Sphere {
         let norm = point.clone().powf_scalar(2.0).sum_dim(D - 1).sqrt();
         point / norm
     }
+
+    fn acceptable_dims(a_is: &[usize]) -> bool {
+        let n = *a_is.first().expect("The ambient R^n does exist");
+        n > 0
+    }
 }
 
 #[cfg(test)]
@@ -63,11 +89,12 @@ mod test {
     use super::Sphere;
     use burn::{
         backend::{Autodiff, NdArray},
-        tensor::Tensor,
+        tensor::{Shape, Tensor},
     };
 
     type TestBackend = Autodiff<NdArray>;
     type TestTensor = Tensor<TestBackend, 1>;
+    type TestManyTensor = Tensor<TestBackend, 3>;
 
     const TOLERANCE: f32 = 1e-6;
 
@@ -88,14 +115,29 @@ mod test {
         Tensor::from_floats(data, &device)
     }
 
+    fn create_test_matrices<const ROWS: usize, const CHANNEL0: usize, const CHANNEL1: usize>(
+        data: [[[f32; ROWS]; CHANNEL1]; CHANNEL0],
+    ) -> TestManyTensor {
+        let device = Default::default();
+        Tensor::from_floats(data, &device)
+    }
+
     #[test]
     fn test_manifold_creation() {
         let _manifold = <Sphere as Manifold<TestBackend>>::new();
         assert_eq!(<Sphere as Manifold<TestBackend>>::name(), "Sphere");
-        assert_eq!(<Sphere as Manifold<TestBackend>>::specific_name(&burn::tensor::Shape{dims: vec![5]}),
-            "[] Channels worth of points in Sphere with specific n's [5]");
-        assert_eq!(<Sphere as Manifold<TestBackend>>::specific_name(&burn::tensor::Shape{dims: vec![10,30,5]}),
-            "[10, 30] Channels worth of points in Sphere with specific n's [5]");
+        assert_eq!(
+            <Sphere as Manifold<TestBackend>>::specific_name(&burn::tensor::Shape {
+                dims: vec![5]
+            }),
+            "Sphere S^4 subset R^5"
+        );
+        assert_eq!(
+            <Sphere as Manifold<TestBackend>>::specific_name(&burn::tensor::Shape {
+                dims: vec![10, 30, 5]
+            }),
+            "[10, 30] Channels worth of points in Sphere S^4 subset R^5"
+        );
     }
 
     #[test]
@@ -112,6 +154,47 @@ mod test {
         // The projection should be orthogonal to the point
         // i.e., point^T * projected should be 0
         let product = (point.clone() * projected.clone()).sum();
+        let max_entry = product.abs().max().into_scalar();
+        assert!(
+            max_entry < TOLERANCE,
+            "Projected direction not in tangent space: absoulte value of the dot product = {}",
+            max_entry
+        );
+    }
+
+    #[test]
+    fn test_many_projection_tangent_space() {
+        // Create many points on the Sphere manifold
+        let point_00 = [3.0 / 5.0, 0.0, 0.0, 4.0 / 5.0, 0.0, 0.0];
+        let point_01 = [4.0 / 5.0, 0.0, 3.0 / 5.0, 0.0, 0.0, 0.0];
+        let point_02 = [1.0 / 1.0, 0.0, 0.0, 0.0 / 1.0, 0.0, 0.0];
+        let point_10 = [0.0 / 1.0, 0.0, 0.0, -1.0 / 1.0, 0.0, 0.0];
+        let point_11 = [3.0 / 5.0, 0.0, 4.0 / 5.0, 0.0, 0.0, 0.0];
+        let point_12 = [3.0 / 5.0, 0.0, 0.0, -4.0 / 5.0, 0.0, 0.0];
+        let points = create_test_matrices::<6, 2, 3>([
+            [point_00, point_01, point_02],
+            [point_10, point_11, point_12],
+        ]);
+        assert_eq!(
+            points.shape(),
+            Shape {
+                dims: vec![2, 3, 6]
+            }
+        );
+
+        // Create many direction vectors
+        let directions = TestManyTensor::random(
+            points.shape(),
+            burn::tensor::Distribution::Uniform(-1.0, 1.0),
+            &points.device(),
+        );
+
+        let projecteds =
+            <Sphere as Manifold<TestBackend>>::project(points.clone(), directions.clone());
+
+        // The projection should be orthogonal to the point
+        // i.e., point^T * projected should be 0
+        let product = (points.clone() * projecteds.clone()).sum_dim(2);
         let max_entry = product.abs().max().into_scalar();
         assert!(
             max_entry < TOLERANCE,

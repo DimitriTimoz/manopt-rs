@@ -78,6 +78,11 @@ impl<B: Backend> Manifold<B> for CustomSphereManifold {
         let zeros = dot_product.zeros_like();
         dot_product.is_close(zeros, None, Some(1e-6))
     }
+
+    fn acceptable_dims(a_is: &[usize]) -> bool {
+        let n = *a_is.first().expect("The ambient R^n does exist");
+        n > 0
+    }
 }
 
 #[derive(Debug, Clone)]

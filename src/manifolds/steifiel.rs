@@ -74,6 +74,12 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> Tensor<B, D, burn::tensor::Bool> {
         todo!()
     }
+
+    fn acceptable_dims(a_is: &[usize]) -> bool {
+        let n = a_is[0];
+        let k = a_is[1];
+        n > 0 && k > 0 && k <= n
+    }
 }
 
 fn gram_schmidt<B: Backend, const D: usize>(v: &Tensor<B, D>) -> Tensor<B, D> {

@@ -15,6 +15,8 @@ pub mod sphere;
 pub use sphere::Sphere;
 
 /// A Riemannian manifold defines the geometric structure for optimization.
+/// This is actually for a family of manifolds parameterized by some natural numbers.
+///
 ///
 /// This trait provides all the necessary operations for Riemannian optimization:
 /// - Tangent space projections
@@ -23,22 +25,12 @@ pub use sphere::Sphere;
 /// - Parallel transport
 /// - Riemannian inner products
 ///
-/// # Example Implementation
-///
-/// ```r u st
-/// use manopt_rs::prelude::*;
-///
-/// #[derive(Clone)]
-/// struct MyManifold;
-///
-/// impl<B: Backend> Manifold<B> for MyManifold {
-/// }
-/// ```
 pub trait Manifold<B: Backend>: Clone + Send + Sync {
     const RANK_PER_POINT: usize;
 
     fn new() -> Self;
     fn name() -> &'static str;
+    #[must_use]
     fn specific_name(s: &Shape) -> String {
         let dims = &s.dims;
         let num_dims = dims.len();
@@ -49,9 +41,34 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
         )
     }
 
+    /// The manifold lives in `R^a_1 \times R^{a_{RANK_PER_POINT}}`
+    /// so if we have a Tensor of shape `s`
+    /// then it's last `RANK_PER_POINT` dimensions will be those a's
+    /// with the previous dimensions being used as channels.
+    /// Those a's then must be allowed
+    /// For example in a Matrix Lie group they will be
+    /// `R^n \times R^n`, giving a constraint that those last
+    /// two dimensions in the shape be equal to each other.
+    #[must_use]
     fn acceptable_shape(s: &Shape) -> bool {
-        s.num_dims() >= Self::RANK_PER_POINT
+        let enough_points = s.num_dims() >= Self::RANK_PER_POINT;
+        if !enough_points {
+            return false;
+        }
+        let (_, a_i) = s.dims.split_at(s.num_dims() - Self::RANK_PER_POINT);
+        Self::acceptable_dims(a_i)
     }
+
+    /// The manifold lives in `R^a_1 \times R^{a_{RANK_PER_POINT}}`
+    /// Those a's must be allowed .
+    /// For example in a Matrix Lie group they will be
+    /// `R^n \times R^n`, giving a constraint that those last
+    /// two dimensions in the shape be equal to each other.
+    /// For the purposes of this, we are allowed to assume the slice
+    /// is of length `Self::RANK_PER_POINT`
+    /// because it should only be called through `Self::acceptable_shape`.
+    /// Putting this in the type would not be allowed without unstable features.
+    fn acceptable_dims(_a_is: &[usize]) -> bool;
 
     /// Project `vector` to the tangent space at `point`
     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D>;
@@ -75,7 +92,7 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
         tangent: Tensor<B, D>,
     ) -> Tensor<B, D> {
         // Default implementation: project to tangent space at point2
-        Self::project_tangent(point2, tangent.into())
+        Self::project_tangent(point2, tangent)
     }
 
     /// Move along the manifold from `point` along the tangent vector `direction` with step size
@@ -163,5 +180,9 @@ impl<B: Backend> Manifold<B> for Euclidean {
             .any_dim(<Self as Manifold<B>>::RANK_PER_POINT)
             .bool_not();
         Self::is_in_manifold(point).bool_and(vector_exists)
+    }
+
+    fn acceptable_dims(_a_is: &[usize]) -> bool {
+        true
     }
 }
