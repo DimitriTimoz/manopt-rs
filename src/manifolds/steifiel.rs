@@ -89,26 +89,27 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
         let a_transpose_times_a = point.clone().transpose().matmul(point);
         let all_dims = a_transpose_times_a.shape();
         debug_assert!(all_dims.num_dims() >= 2);
-        let shape : [usize; D] = a_transpose_times_a.shape().dims();
-        debug_assert_eq!(shape[D-1], shape[D-2]);
-        let n = shape[D-1];
+        let shape: [usize; D] = a_transpose_times_a.shape().dims();
+        debug_assert_eq!(shape[D - 1], shape[D - 2]);
+        let n = shape[D - 1];
         let mut other = a_transpose_times_a.zeros_like();
         let mut ones_shape = [1usize; D];
-        for i in 0..(D-2) {
-            ones_shape[i] = shape[i];
-        }
-        let ones_patch = Tensor::<B,D>::ones(ones_shape, &a_transpose_times_a.device());
+        ones_shape[..(D - 2)].copy_from_slice(&shape[..(D - 2)]);
+        let ones_patch = Tensor::<B, D>::ones(ones_shape, &a_transpose_times_a.device());
         for diag in 0..n {
-            let ranges : [_;D] = std::array::from_fn(|dim| 
-                if dim < D-2 {
+            let ranges: [_; D] = std::array::from_fn(|dim| {
+                if dim < D - 2 {
                     0..shape[dim]
                 } else {
-                    diag..diag+1
+                    diag..diag + 1
                 }
-            );
+            });
             other = other.slice_assign(ranges, ones_patch.clone());
         }
-        a_transpose_times_a.is_close(other, None, None).all_dim(D-1).all_dim(D-2)
+        a_transpose_times_a
+            .is_close(other, None, None)
+            .all_dim(D - 1)
+            .all_dim(D - 2)
     }
 
     fn acceptable_dims(a_is: &[usize]) -> bool {
@@ -429,7 +430,9 @@ mod test {
             norm2
         );
 
-        assert!(SteifielsManifold::<TestBackend>::is_in_manifold(retracted).all().into_scalar());
+        assert!(SteifielsManifold::<TestBackend>::is_in_manifold(retracted)
+            .all()
+            .into_scalar());
     }
 
     #[test]
