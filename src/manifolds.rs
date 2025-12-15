@@ -14,6 +14,11 @@ pub use steifiel::SteifielsManifold;
 pub mod sphere;
 pub use sphere::Sphere;
 
+pub mod matrix_groups;
+pub use matrix_groups::OrthogonalGroup;
+
+pub mod utils;
+
 /// A Riemannian manifold defines the geometric structure for optimization.
 /// This is actually for a family of manifolds parameterized by some natural numbers.
 ///
