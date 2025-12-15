@@ -1,4 +1,4 @@
-use crate::{manifolds::utils::identity_in_last_two, prelude::*};
+use crate::{lie_group::MonoidManifold, manifolds::utils::identity_in_last_two, prelude::*};
 
 #[derive(Debug, Clone, Default)]
 pub struct OrthogonalGroup<B: Backend, const IS_SPECIAL: bool> {
@@ -76,5 +76,11 @@ impl<B: Backend, const IS_SPECIAL: bool> Manifold<B> for OrthogonalGroup<B, IS_S
         _vector: Tensor<B, D>,
     ) -> Tensor<B, D, burn::tensor::Bool> {
         todo!()
+    }
+}
+
+impl<B: Backend, const IS_SPECIAL: bool> MonoidManifold<B> for OrthogonalGroup<B,IS_SPECIAL> {
+    fn lie_mul<const D: usize>(points0: Tensor<B,D>, points1: Tensor<B,D>) -> Tensor<B,D> {
+        points0.matmul(points1)
     }
 }
