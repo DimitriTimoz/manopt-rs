@@ -79,8 +79,8 @@ impl<B: Backend, const IS_SPECIAL: bool> Manifold<B> for OrthogonalGroup<B, IS_S
     }
 }
 
-impl<B: Backend, const IS_SPECIAL: bool> MonoidManifold<B> for OrthogonalGroup<B,IS_SPECIAL> {
-    fn lie_mul<const D: usize>(points0: Tensor<B,D>, points1: Tensor<B,D>) -> Tensor<B,D> {
+impl<B: Backend, const IS_SPECIAL: bool> MonoidManifold<B> for OrthogonalGroup<B, IS_SPECIAL> {
+    fn lie_mul<const D: usize>(points0: Tensor<B, D>, points1: Tensor<B, D>) -> Tensor<B, D> {
         points0.matmul(points1)
     }
 }
