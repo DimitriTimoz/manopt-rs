@@ -2,17 +2,17 @@
 //!
 //! This module provides optimizers that can handle multiple manifold types within
 //! a single optimization step, allowing complex models with heterogeneous constraints.
-//! 
+//!
 //! Users can implement their own manifolds and use them with the multi-manifold optimizer.
 
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use burn::module::Module;
 
+use crate::constrained_module::Constrained;
 use crate::prelude::*;
-use crate::manifolds::Constrained;
 
 /// Multi-manifold optimizer configuration
 #[derive(Debug, Clone)]
@@ -39,11 +39,13 @@ impl Default for MultiManifoldOptimizerConfig {
 /// Multi-manifold optimizer that can handle different manifold types
 #[derive(Debug)]
 pub struct MultiManifoldOptimizer<B: Backend> {
+    #[allow(unused)]
     config: MultiManifoldOptimizerConfig,
     _backend: PhantomData<B>,
 }
 
 impl<B: Backend> MultiManifoldOptimizer<B> {
+    #[must_use]
     pub fn new(config: MultiManifoldOptimizerConfig) -> Self {
         Self {
             config,
@@ -73,8 +75,9 @@ impl<B: Backend> MultiManifoldOptimizer<B> {
 /// Extension trait for modules with manifold constraints
 pub trait ManifoldOptimizable<B: Backend>: Module<B> {
     /// Apply manifold constraints to the module
+    #[must_use]
     fn apply_manifold_constraints(self) -> Self;
-    
+
     /// Get information about manifold constraints
     fn get_manifold_info(&self) -> HashMap<String, String>;
 }
@@ -90,7 +93,7 @@ where
         // Apply constraints to the inner module and wrap it back
         self
     }
-    
+
     fn get_manifold_info(&self) -> HashMap<String, String> {
         let mut info = HashMap::new();
         info.insert("manifold_type".to_string(), Man::name().to_string());
@@ -106,12 +109,11 @@ mod tests {
 
     type TestBackend = NdArray;
 
-
     #[test]
     fn test_multi_manifold_optimizer() {
         let config = MultiManifoldOptimizerConfig::default();
         let optimizer = MultiManifoldOptimizer::<TestBackend>::new(config);
-        
+
         // Test basic construction
         assert_eq!(optimizer.config.learning_rate, 1e-3);
     }
@@ -121,7 +123,7 @@ mod tests {
         let device = Default::default();
         let linear = LinearConfig::new(2, 2).init::<TestBackend>(&device);
         let constrained_linear = Constrained::<_, Euclidean>::new(linear);
-        
+
         let info = constrained_linear.get_manifold_info();
         assert_eq!(info.get("manifold_type"), Some(&"Euclidean".to_string()));
     }
@@ -130,15 +132,18 @@ mod tests {
     fn test_apply_constraints() {
         let config = MultiManifoldOptimizerConfig::default();
         let optimizer = MultiManifoldOptimizer::<TestBackend>::new(config);
-        
+
         let device = Default::default();
         let linear = LinearConfig::new(2, 2).init::<TestBackend>(&device);
         let constrained_linear = Constrained::<_, Euclidean>::new(linear);
-        
+
         // Test applying constraints
         let result = optimizer.apply_constraints(constrained_linear);
-        
+
         // Should return the same module since we have a simplified implementation
-        assert_eq!(result.get_manifold_info().get("manifold_type"), Some(&"Euclidean".to_string()));
+        assert_eq!(
+            result.get_manifold_info().get("manifold_type"),
+            Some(&"Euclidean".to_string())
+        );
     }
 }

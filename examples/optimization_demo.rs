@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use burn::optim::SimpleOptimizer;
-use manopt_rs::prelude::*;
+use manopt_rs::{optimizers::LessSimpleOptimizer, prelude::*};
 
 fn main() {
     // Configure the optimizer
@@ -18,6 +20,8 @@ fn main() {
         Tensor::<burn::backend::NdArray, 1>::from_floats([0.0, 0.0, 0.0], &Default::default());
     let mut state = None;
 
+    let mut loss_decay: HashMap<usize, f32> = HashMap::new();
+
     println!("Target: {}", target);
     println!("Initial x: {}", x);
     println!("\nOptimization steps:");
@@ -35,13 +39,36 @@ fn main() {
         // Print progress every 10 steps
         if step % 10 == 0 {
             let loss = (x.clone() - target.clone()).powf_scalar(2.0).sum();
-            println!("Step {}: x = {}, loss = {}", step, x, loss);
+            let loss_scalar = loss.into_scalar();
+            println!("Step {}: x = {}, loss = {:.5}", step, x, loss_scalar);
+            loss_decay.insert(step, loss_scalar);
         }
     }
+
+    println!("\nResult after 100:");
+    println!("x = {}", x);
+    println!("Target = {}", target);
+    let final_loss = (x.clone() - target.clone())
+        .powf_scalar(2.0)
+        .sum()
+        .into_scalar();
+    println!("Loss after 100 = {:.5}", final_loss);
+    loss_decay.insert(100, final_loss);
+
+    // Perform optimization steps
+    (x, state) = optimizer.many_steps(|_| 1.0, 400, |x| (x - target.clone()) * 2.0, x, state);
 
     println!("\nFinal result:");
     println!("x = {}", x);
     println!("Target = {}", target);
-    let final_loss = (x.clone() - target.clone()).powf_scalar(2.0).sum();
-    println!("Final loss = {}", final_loss);
+    let final_loss = (x.clone() - target.clone())
+        .powf_scalar(2.0)
+        .sum()
+        .into_scalar();
+    println!("Final loss = {:.5}", final_loss);
+    println!("State is set {}", state.is_some());
+    loss_decay.insert(500, final_loss);
+    let mut sorted_losses: Vec<(usize, f32)> = loss_decay.into_iter().collect();
+    sorted_losses.sort_by_key(|z| z.0);
+    println!("The loss decayed as follows: {:?}", sorted_losses);
 }

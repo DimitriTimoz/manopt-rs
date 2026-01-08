@@ -1,20 +1,27 @@
 //! Riemannian manifolds for constrained optimization.
 //!
-//! This module defines manifolds and their operations for Riemannian optimization.
+//! This module defines manifolds and their operations.
 //! Each manifold implements geometric operations like projection, retraction,
 //! exponential maps, and parallel transport.
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use crate::prelude::*;
 
 pub mod steifiel;
-use burn::{module::{AutodiffModule, ModuleDisplay}, tensor::backend::AutodiffBackend};
 pub use steifiel::SteifielsManifold;
 
 pub mod sphere;
+pub use sphere::Sphere;
+
+pub mod matrix_groups;
+pub use matrix_groups::OrthogonalGroup;
+
+pub mod utils;
 
 /// A Riemannian manifold defines the geometric structure for optimization.
+/// This is actually for a family of manifolds parameterized by some natural numbers.
+///
 ///
 /// This trait provides all the necessary operations for Riemannian optimization:
 /// - Tangent space projections
@@ -23,62 +30,67 @@ pub mod sphere;
 /// - Parallel transport
 /// - Riemannian inner products
 ///
-/// # Example Implementation
-///
-/// ```rust
-/// use manopt_rs::prelude::*;
-///
-/// #[derive(Clone)]
-/// struct MyManifold;
-///
-/// impl<B: Backend> Manifold<B> for MyManifold {
-///     fn new() -> Self { MyManifold }
-///     fn name() -> &'static str { "MyManifold" }
-///     
-///     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
-///         // Project vector to tangent space at point
-///         vector
-///     }
-///     
-///     fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
-///         // Move along manifold from point in direction with step size
-///         point + direction
-///     }
-///     
-///     fn inner<const D: usize>(_point: Tensor<B, D>, u: Tensor<B, D>, v: Tensor<B, D>) -> Tensor<B, D> {
-///         // Riemannian inner product at point
-///         u * v
-///     }
-/// }
-/// ```
 pub trait Manifold<B: Backend>: Clone + Send + Sync {
+    const RANK_PER_POINT: usize;
+
     fn new() -> Self;
     fn name() -> &'static str;
+    #[must_use]
+    fn specific_name(s: &Shape) -> String {
+        let dims = &s.dims;
+        let num_dims = dims.len();
+        let (channel_dims, manifold_dims) = dims.split_at(num_dims - Self::RANK_PER_POINT);
+        format!(
+            "{channel_dims:?} Channels worth of points in {} with specific n's {manifold_dims:?}",
+            Self::name()
+        )
+    }
 
+    /// The manifold lives in `R^a_1 \times R^{a_{RANK_PER_POINT}}`
+    /// so if we have a Tensor of shape `s`
+    /// then it's last `RANK_PER_POINT` dimensions will be those a's
+    /// with the previous dimensions being used as channels.
+    /// Those a's then must be allowed
+    /// For example in a Matrix Lie group they will be
+    /// `R^n \times R^n`, giving a constraint that those last
+    /// two dimensions in the shape be equal to each other.
+    #[must_use]
+    fn acceptable_shape(s: &Shape) -> bool {
+        let enough_points = s.num_dims() >= Self::RANK_PER_POINT;
+        if !enough_points {
+            return false;
+        }
+        let (_, a_i) = s.dims.split_at(s.num_dims() - Self::RANK_PER_POINT);
+        Self::acceptable_dims(a_i)
+    }
+
+    /// The manifold lives in `R^a_1 \times R^{a_{RANK_PER_POINT}}`
+    /// Those a's must be allowed .
+    /// For example in a Matrix Lie group they will be
+    /// `R^n \times R^n`, giving a constraint that those last
+    /// two dimensions in the shape be equal to each other.
+    /// For the purposes of this, we are allowed to assume the slice
+    /// is of length `Self::RANK_PER_POINT`
+    /// because it should only be called through `Self::acceptable_shape`.
+    /// Putting this in the type would not be allowed without unstable features.
+    fn acceptable_dims(_a_is: &[usize]) -> bool;
+
+    /// Project `vector` to the tangent space at `point`
     fn project<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D>;
-    fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D>;
 
-    /// Convert Euclidean gradient to Riemannian gradient
+    /// Convert Euclidean gradient `grad` to Riemannian gradient at `point`
     fn egrad2rgrad<const D: usize>(point: Tensor<B, D>, grad: Tensor<B, D>) -> Tensor<B, D> {
         Self::project(point, grad)
     }
 
-    /// Riemannian inner product at a given point
-    fn inner<const D: usize>(point: Tensor<B, D>, u: Tensor<B, D>, v: Tensor<B, D>)
-        -> Tensor<B, D>;
-
-    /// Exponential map: move from point along tangent vector u with step size
-    fn expmap<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
-        Self::retract(point, direction)
+    /// Project `vector` to the tangent space at `point`
+    fn project_tangent<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
+        Self::project(point, vector)
     }
 
-    /// Parallel transport of tangent vector from point1 to point2
+    /// Parallel transport of a tangent vector `tangent` from `point1` to `point2`
+    /// By default, this is not accurately implemented and ignores the metric/connection
+    /// just projecting to the tangent space.
     fn parallel_transport<const D: usize>(
         _point1: Tensor<B, D>,
         point2: Tensor<B, D>,
@@ -88,21 +100,32 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
         Self::project_tangent(point2, tangent)
     }
 
-    /// Project vector to tangent space at point
-    fn project_tangent<const D: usize>(point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> {
-        Self::project(point, vector)
+    /// Move along the manifold from `point` along the tangent vector `direction` with step size
+    fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D>;
+
+    /// Exponential map: move from `point` along tangent vector `direction` with step size
+    fn expmap<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
+        Self::retract(point, direction)
     }
 
-    /// Project point onto manifold
-    fn proj<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D> {
-        point
-    }
+    /// Riemannian inner product at a given `point`
+    /// `u` and `v` are in the tangent space at `point`
+    fn inner<const D: usize>(point: Tensor<B, D>, u: Tensor<B, D>, v: Tensor<B, D>)
+        -> Tensor<B, D>;
 
-    /// Check if a point is in the manifold.
-    /// By default, this is not implemented and returns `false`.
-    fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> bool {
-        false
-    }
+    /// Project `point` onto manifold
+    fn proj<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D>;
+
+    /// Check if a `point` is in the manifold.
+    fn is_in_manifold<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D, burn::tensor::Bool>;
+
+    /// Check if a `vector` is in the tangent space at `point`
+    /// given that `point` is in the manifold.
+    /// By default, this is not accurately implemented and returns `false`.
+    fn is_tangent_at<const D: usize>(
+        point: Tensor<B, D>,
+        vector: Tensor<B, D>,
+    ) -> Tensor<B, D, burn::tensor::Bool>;
 }
 
 /// Euclidean manifold - the simplest case where no projection is needed
@@ -110,6 +133,8 @@ pub trait Manifold<B: Backend>: Clone + Send + Sync {
 pub struct Euclidean;
 
 impl<B: Backend> Manifold<B> for Euclidean {
+    const RANK_PER_POINT: usize = 1;
+
     fn new() -> Self {
         Self
     }
@@ -122,10 +147,7 @@ impl<B: Backend> Manifold<B> for Euclidean {
         vector
     }
 
-    fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
+    fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         point + direction
     }
 
@@ -134,203 +156,38 @@ impl<B: Backend> Manifold<B> for Euclidean {
         u: Tensor<B, D>,
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
-        u * v
+        (u * v).sum_dim(D - 1)
     }
 
-    fn is_in_manifold<const D: usize>(_point: Tensor<B, D>) -> bool {
+    fn is_in_manifold<const D: usize>(
+        point: Tensor<B, D>,
+    ) -> burn::tensor::Tensor<B, D, burn::tensor::Bool> {
+        point
+            .clone()
+            .detach()
+            .is_nan()
+            .any_dim(<Self as Manifold<B>>::RANK_PER_POINT)
+            .bool_not()
+    }
+
+    fn proj<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D> {
+        point
+    }
+
+    fn is_tangent_at<const D: usize>(
+        point: Tensor<B, D>,
+        vector: Tensor<B, D>,
+    ) -> Tensor<B, D, burn::tensor::Bool> {
+        let vector_exists = vector
+            .clone()
+            .detach()
+            .is_nan()
+            .any_dim(<Self as Manifold<B>>::RANK_PER_POINT)
+            .bool_not();
+        Self::is_in_manifold(point).bool_and(vector_exists)
+    }
+
+    fn acceptable_dims(_a_is: &[usize]) -> bool {
         true
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Constrained<M, Man> {
-    module: M,
-    _manifold: PhantomData<Man>,
-}
-
-impl<B, M, Man> Module<B> for  Constrained<M, Man>
-where 
-    M: Module<B>,
-    B: Backend,
-    Man: Clone + Debug + Send,
-{
-    type Record = M::Record;
-
-    fn collect_devices(&self, devices: burn::module::Devices<B>) -> burn::module::Devices<B> {
-        self.module.collect_devices(devices)
-    }
-
-    fn fork(self, device: &B::Device) -> Self {
-        let module = self.module.fork(device);
-        Self {
-            module,
-            _manifold: PhantomData,
-        }
-    }
-
-    fn to_device(self, device: &B::Device) -> Self {
-        let module = self.module.to_device(device);
-        Self {
-            module,
-            _manifold: PhantomData,
-        }
-    }
-
-    fn visit<Visitor: burn::module::ModuleVisitor<B>>(&self, visitor: &mut Visitor) {
-        self.module.visit(visitor);
-    }
-
-    fn map<Mapper: burn::module::ModuleMapper<B>>(self, mapper: &mut Mapper) -> Self {
-        let module = self.module.map(mapper);
-        Self {
-            module,
-            _manifold: PhantomData,
-        }
-    }
-
-    fn load_record(self, record: Self::Record) -> Self {
-        let module = self.module.load_record(record);
-        Self {
-            module,
-            _manifold: PhantomData,
-        }
-    }
-
-    fn into_record(self) -> Self::Record {
-        self.module.into_record()
-    }
-}
-
-
-impl<B, M, Man> AutodiffModule<B> for  Constrained<M, Man>
-where 
-    M: AutodiffModule<B>,
-    B: AutodiffBackend,
-    Man: Clone + Debug + Send,
-{
-    type InnerModule = M::InnerModule;
-
-    fn valid(&self) -> Self::InnerModule {
-        self.module.valid()
-    }
-}
-
-impl<M, Man> burn::module::ModuleDisplayDefault for Constrained<M, Man>
-where 
-    M: burn::module::ModuleDisplayDefault,
-    Man: Clone + Debug + Send,
-{
-    fn content(&self, content: burn::module::Content) -> Option<burn::module::Content> {
-        self.module.content(content)
-    }
-}
-
-impl<M, Man> ModuleDisplay for  Constrained<M, Man>
-where 
-    M: ModuleDisplay,
-    Man: Clone + Debug + Send,
-{
-    fn format(&self, passed_settings: burn::module::DisplaySettings) -> String {
-        format!("Constrained<{}>", self.module.format(passed_settings))
-    }
-}
-
-impl<M, Man> Constrained<M, Man> {
-    pub fn new(module: M) -> Self {
-        Self {
-            module,
-            _manifold: PhantomData,
-        }
-    }
-    
-    /// Get a reference to the inner module
-    pub fn inner(&self) -> &M {
-        &self.module
-    }
-    
-    /// Get a mutable reference to the inner module
-    pub fn inner_mut(&mut self) -> &mut M {
-        &mut self.module
-    }
-    
-    /// Apply manifold projection to a tensor - requires explicit Backend type
-    pub fn project_tensor<B, const D: usize>(&self, point: Tensor<B, D>, vector: Tensor<B, D>) -> Tensor<B, D> 
-    where
-        B: Backend,
-        M: Module<B>,
-        Man: Manifold<B> + Clone + Debug + Send,
-    {
-        Man::project(point, vector)
-    }
-    
-    /// Apply manifold retraction to a tensor - requires explicit Backend type
-    pub fn retract_tensor<B, const D: usize>(&self, point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D>
-    where
-        B: Backend,
-        M: Module<B>,
-        Man: Manifold<B> + Clone + Debug + Send,
-    {
-        Man::retract(point, direction)
-    }
-    
-    /// Convert Euclidean gradient to Riemannian gradient - requires explicit Backend type
-    pub fn euclidean_to_riemannian<B, const D: usize>(&self, point: Tensor<B, D>, grad: Tensor<B, D>) -> Tensor<B, D>
-    where
-        B: Backend,
-        M: Module<B>,
-        Man: Manifold<B> + Clone + Debug + Send,
-    {
-        Man::egrad2rgrad(point, grad)
-    }
-    
-    /// Project point onto manifold - requires explicit Backend type
-    pub fn project_to_manifold<B, const D: usize>(&self, point: Tensor<B, D>) -> Tensor<B, D>
-    where
-        B: Backend,
-        M: Module<B>,
-        Man: Manifold<B> + Clone + Debug + Send,
-    {
-        Man::proj(point)
-    }
-    
-    /// Get the manifold name
-    pub fn manifold_name<B>(&self) -> &'static str 
-    where
-        B: Backend,
-        Man: Manifold<B>,
-    {
-        Man::name()
-    }
-}
-
-/// Trait for modules that have manifold constraints
-pub trait ConstrainedModule<B: Backend> {
-    /// Apply manifold constraints to all parameters in the module
-    fn apply_manifold_constraints(self) -> Self;
-    
-    /// Get information about the manifold constraints
-    fn get_manifold_info(&self) -> std::collections::HashMap<String, String>;
-    
-    /// Check if this module has manifold constraints
-    fn has_manifold_constraints(&self) -> bool {
-        true
-    }
-}
-
-/// Blanket implementation for Constrained wrapper
-impl<B, M, Man> ConstrainedModule<B> for Constrained<M, Man>
-where
-    M: Module<B>,
-    B: Backend,
-    Man: Manifold<B> + Clone + Debug + Send,
-{
-    fn apply_manifold_constraints(self) -> Self {
-        self
-    }
-    
-    fn get_manifold_info(&self) -> std::collections::HashMap<String, String> {
-        let mut info = std::collections::HashMap::new();
-        info.insert("manifold_type".to_string(), Man::name().to_string());
-        info
     }
 }

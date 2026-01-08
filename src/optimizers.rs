@@ -2,17 +2,20 @@
 //!
 //! This module provides Riemannian optimization algorithms that work on manifolds,
 //! extending classical optimization methods to handle geometric constraints.
+use crate::prelude::*;
 use burn::module::AutodiffModule;
 use burn::optim::{adaptor::OptimizerAdaptor, LrDecayState, SimpleOptimizer};
 use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
 use burn::LearningRate;
 use std::marker::PhantomData;
-use crate::prelude::*;
+pub mod hessian_optimizer;
+pub mod many_steps;
 pub mod multiple;
+pub use many_steps::LessSimpleOptimizer;
 
 #[derive(Debug)]
-pub struct ManifoldRGDConfig<M, B> {
+pub struct ManifoldRGDConfig<M: Manifold<B>, B: Backend> {
     _manifold: PhantomData<M>,
     _backend: PhantomData<B>,
 }
@@ -74,10 +77,17 @@ where
     }
 
     fn to_device<const D: usize>(
-        _state: Self::State<D>,
-        _device: &<B as Backend>::Device,
+        state: Self::State<D>,
+        device: &<B as Backend>::Device,
     ) -> Self::State<D> {
-        _state
+        const DECAY_STATE_TO_DEVICE: bool = false;
+        if DECAY_STATE_TO_DEVICE {
+            ManifoldRGDState {
+                lr_decay: state.lr_decay.to_device(device),
+            }
+        } else {
+            state
+        }
     }
 }
 
@@ -86,6 +96,7 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn init<Back: AutodiffBackend, Mod: AutodiffModule<Back>>(
         &self,
     ) -> OptimizerAdaptor<ManifoldRGD<M, Back::InnerBackend>, Mod, Back>
@@ -117,7 +128,7 @@ where
 ///     .with_amsgrad(true);
 /// ```
 #[derive(Debug, Clone)]
-pub struct RiemannianAdamConfig<M, B> {
+pub struct RiemannianAdamConfig<M: Manifold<B>, B: Backend> {
     pub lr: f64,
     pub beta1: f64,
     pub beta2: f64,
@@ -154,40 +165,48 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn with_lr(mut self, lr: f64) -> Self {
         self.lr = lr;
         self
     }
 
+    #[must_use]
     pub fn with_beta1(mut self, beta1: f64) -> Self {
         self.beta1 = beta1;
         self
     }
 
+    #[must_use]
     pub fn with_beta2(mut self, beta2: f64) -> Self {
         self.beta2 = beta2;
         self
     }
 
+    #[must_use]
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    #[must_use]
     pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
         self.weight_decay = weight_decay;
         self
     }
 
+    #[must_use]
     pub fn with_amsgrad(mut self, amsgrad: bool) -> Self {
         self.amsgrad = amsgrad;
         self
     }
 
+    #[must_use]
     pub fn with_stabilize(mut self, stabilize: Option<usize>) -> Self {
         self.stabilize = stabilize;
         self
@@ -205,6 +224,7 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn new(config: RiemannianAdamConfig<M, B>) -> Self {
         Self { config }
     }
@@ -268,12 +288,15 @@ where
         state.exp_avg =
             state.exp_avg.clone() * self.config.beta1 + rgrad.clone() * (1.0 - self.config.beta1);
 
-        let inner_product = M::inner(tensor.clone(), rgrad.clone(), rgrad.clone());
-        state.exp_avg_sq = state.exp_avg_sq.clone() * self.config.beta2 + inner_product * (1.0 - self.config.beta2);
+        let inner_product = M::inner::<D>(tensor.clone(), rgrad.clone(), rgrad.clone());
+        state.exp_avg_sq = state.exp_avg_sq.clone() * self.config.beta2
+            + inner_product * (1.0 - self.config.beta2);
 
         // Compute denominator
         let denom = if self.config.amsgrad {
-            let max_exp_avg_sq = state.max_exp_avg_sq.as_ref().unwrap();
+            let max_exp_avg_sq = state.max_exp_avg_sq.as_ref().expect(
+                "On an initial None state, having config.amsgrad be True makes this maximum field set to 0. \
+                If there was an input state then it will be present because of earlier steps");
             let new_max = Tensor::max_pair(max_exp_avg_sq.clone(), state.exp_avg_sq.clone());
             state.max_exp_avg_sq = Some(new_max.clone());
             new_max.sqrt() + self.config.eps
@@ -282,7 +305,9 @@ where
         };
 
         // Bias correction
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let bias_correction1 = 1.0 - self.config.beta1.powi(state.step as i32);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let bias_correction2 = 1.0 - self.config.beta2.powi(state.step as i32);
         let step_size = learning_rate * bias_correction2.sqrt() / bias_correction1;
 
@@ -319,6 +344,7 @@ where
     M: Manifold<B>,
     B: Backend,
 {
+    #[must_use]
     pub fn init<Back: AutodiffBackend, Mod: AutodiffModule<Back>>(
         &self,
     ) -> OptimizerAdaptor<RiemannianAdam<M, Back::InnerBackend>, Mod, Back>
@@ -419,10 +445,11 @@ mod tests {
 
         // Check that AMSGrad state is initialized
         assert!(state.is_some());
-        let state = state.unwrap();
+        let state =
+            state.expect("RiemannianAdam optimizer always gives back an initialized state on step");
         assert!(
             state.max_exp_avg_sq.is_some(),
-            "AMSGrad should initialize max_exp_avg_sq"
+            "AMSGrad should initialize max_exp_avg_sq. See the explanation around the compute denominator part of step"
         );
     }
 
@@ -461,13 +488,16 @@ mod tests {
         // First step
         let (tensor1, state1) = optimizer.step(1.0, tensor, grad.clone(), None);
         assert!(state1.is_some());
-        let state1 = state1.unwrap();
+        let state1 = state1.expect(
+            "RiemannianAdam optimizer always gives back an initialized state on step even with None initial state");
         assert_eq!(state1.step, 1);
 
         // Second step with state
         let (_, state2) = optimizer.step(1.0, tensor1, grad, Some(state1));
         assert!(state2.is_some());
-        let state2 = state2.unwrap();
+        let state2 = state2.expect(
+            "There was an input state so RiemannianAdam optimizer's step modifies that and returns it"
+        );
         assert_eq!(state2.step, 2);
     }
 }

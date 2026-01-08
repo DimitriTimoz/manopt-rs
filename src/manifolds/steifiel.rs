@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{manifolds::utils::identity_in_last_two, prelude::*};
 
 #[derive(Debug, Clone, Default)]
 pub struct SteifielsManifold<B: Backend> {
@@ -6,6 +6,8 @@ pub struct SteifielsManifold<B: Backend> {
 }
 
 impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
+    const RANK_PER_POINT: usize = 2;
+
     fn new() -> Self {
         SteifielsManifold {
             _backend: std::marker::PhantomData,
@@ -17,7 +19,7 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
     }
 
     /// Project direction onto tangent space at point
-    /// For Stiefel manifold: P_X(Z) = Z - X(X^T Z + Z^T X)/2
+    /// For Stiefel manifold: `P_X(Z) = Z - X(X^T Z + Z^T X)/2`
     fn project<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
         let xtd = point.clone().transpose().matmul(direction.clone());
         let dtx = direction.clone().transpose().matmul(point.clone());
@@ -25,21 +27,79 @@ impl<B: Backend> Manifold<B> for SteifielsManifold<B> {
         direction - point.matmul(symmetric_part)
     }
 
-    fn retract<const D: usize>(
-        point: Tensor<B, D>,
-        direction: Tensor<B, D>,
-    ) -> Tensor<B, D> {
-        let s = point + direction;
-        gram_schmidt(&s)
+    fn retract<const D: usize>(point: Tensor<B, D>, direction: Tensor<B, D>) -> Tensor<B, D> {
+        debug_assert!(point.dims().len() >= Self::RANK_PER_POINT);
+        debug_assert!(direction.dims().len() >= Self::RANK_PER_POINT);
+        let mut s = point + direction;
+        if s.dims().len() > Self::RANK_PER_POINT {
+            // Gram_schmidt as written does so on the first two coordinates
+            // unlike Matrix multiplication and the rest of tensor operations
+            // which is assuming the last two coordinates
+            // and the first bunch being channels instead of vice versa
+            s = s.swap_dims(0, D - 2);
+            s = s.swap_dims(1, D - 1);
+            s = gram_schmidt(&s);
+            s = s.swap_dims(1, D - 1);
+            s = s.swap_dims(0, D - 2);
+            s
+        } else {
+            gram_schmidt(&s)
+        }
     }
 
     fn inner<const D: usize>(
-        _point: Tensor< B, D>,
+        _point: Tensor<B, D>,
         u: Tensor<B, D>,
         v: Tensor<B, D>,
     ) -> Tensor<B, D> {
         // For Stiefel manifold, we use the standard Euclidean inner product
-        u * v
+        (u * v).sum_dim(D - 1).sum_dim(D - 2)
+    }
+
+    fn is_tangent_at<const D: usize>(
+        point: Tensor<B, D>,
+        vector: Tensor<B, D>,
+    ) -> Tensor<B, D, burn::tensor::Bool> {
+        let xtv = point.clone().transpose().matmul(vector.clone());
+        let vtx = vector.clone().transpose().matmul(point.clone());
+        let skew = xtv + vtx.transpose();
+        let max_skew = skew.clone().abs().max_dim(D - 1).max_dim(D - 2);
+        max_skew.lower_elem(1e-6)
+    }
+
+    fn proj<const D: usize>(mut point: Tensor<B, D>) -> Tensor<B, D> {
+        debug_assert!(point.dims().len() >= Self::RANK_PER_POINT);
+        if point.dims().len() > Self::RANK_PER_POINT {
+            // Gram_schmidt as written does so on the first two coordinates
+            // unlike Matrix multiplication and the rest of tensor operations
+            // which is assuming the last two coordinates
+            // and the first bunch being channels instead of vice versa
+            point = point.swap_dims(0, D - 2);
+            point = point.swap_dims(1, D - 1);
+            point = gram_schmidt(&point);
+            point = point.swap_dims(1, D - 1);
+            point = point.swap_dims(0, D - 2);
+            point
+        } else {
+            gram_schmidt(&point)
+        }
+    }
+
+    fn is_in_manifold<const D: usize>(point: Tensor<B, D>) -> Tensor<B, D, burn::tensor::Bool> {
+        let a_transpose_times_a = point.clone().transpose().matmul(point);
+        let all_dims = a_transpose_times_a.shape();
+        debug_assert!(all_dims.num_dims() >= 2);
+        let other = identity_in_last_two(&a_transpose_times_a);
+        a_transpose_times_a
+            .is_close(other, None, None)
+            .all_dim(D - 1)
+            .all_dim(D - 2)
+    }
+
+    fn acceptable_dims(a_is: &[usize]) -> bool {
+        let n = a_is[0];
+        let k = a_is[1];
+        n > 0 && k > 0 && k <= n
     }
 }
 
@@ -70,6 +130,9 @@ fn gram_schmidt<B: Backend, const D: usize>(v: &Tensor<B, D>) -> Tensor<B, D> {
 
 #[cfg(test)]
 mod test {
+    use crate::manifolds::utils::test::{assert_matrix_close, create_test_matrix};
+    use crate::optimizers::LessSimpleOptimizer;
+
     use super::*;
     use burn::{
         backend::{Autodiff, NdArray},
@@ -77,105 +140,8 @@ mod test {
     };
 
     type TestBackend = Autodiff<NdArray>;
-    type TestTensor = Tensor<TestBackend, 2>;
 
     const TOLERANCE: f32 = 1e-6;
-
-    fn assert_tensor_close(a: &TestTensor, b: &TestTensor, tol: f32) {
-        let diff = (a.clone() - b.clone()).abs();
-        let max_diff = diff.max().into_scalar();
-        assert!(
-            max_diff < tol,
-            "Tensors differ by {}, tolerance: {}",
-            max_diff,
-            tol
-        );
-    }
-
-    fn create_test_matrix(rows: usize, cols: usize, values: Vec<f32>) -> TestTensor {
-        let device = Default::default();
-        // Reshape the flat vector into a 2D array
-        let mut data = Vec::with_capacity(rows);
-        for chunk in values.chunks(cols) {
-            data.push(chunk.to_vec());
-        }
-
-        // Create tensor from nested arrays
-        match (rows, cols) {
-            (3, 2) => {
-                if data.len() >= 3 && data[0].len() >= 2 && data[1].len() >= 2 && data[2].len() >= 2
-                {
-                    Tensor::from_floats(
-                        [
-                            [data[0][0], data[0][1]],
-                            [data[1][0], data[1][1]],
-                            [data[2][0], data[2][1]],
-                        ],
-                        &device,
-                    )
-                } else {
-                    panic!("Invalid 3x2 matrix data");
-                }
-            }
-            (3, 1) => {
-                if data.len() >= 3
-                    && !data[0].is_empty()
-                    && !data[1].is_empty()
-                    && !data[2].is_empty()
-                {
-                    Tensor::from_floats([[data[0][0]], [data[1][0]], [data[2][0]]], &device)
-                } else {
-                    panic!("Invalid 3x1 matrix data");
-                }
-            }
-            (3, 3) => {
-                if data.len() >= 3 && data[0].len() >= 3 && data[1].len() >= 3 && data[2].len() >= 3
-                {
-                    Tensor::from_floats(
-                        [
-                            [data[0][0], data[0][1], data[0][2]],
-                            [data[1][0], data[1][1], data[1][2]],
-                            [data[2][0], data[2][1], data[2][2]],
-                        ],
-                        &device,
-                    )
-                } else {
-                    panic!("Invalid 3x3 matrix data");
-                }
-            }
-            (4, 2) => {
-                if data.len() >= 4
-                    && data[0].len() >= 2
-                    && data[1].len() >= 2
-                    && data[2].len() >= 2
-                    && data[3].len() >= 2
-                {
-                    Tensor::from_floats(
-                        [
-                            [data[0][0], data[0][1]],
-                            [data[1][0], data[1][1]],
-                            [data[2][0], data[2][1]],
-                            [data[3][0], data[3][1]],
-                        ],
-                        &device,
-                    )
-                } else {
-                    panic!("Invalid 4x2 matrix data");
-                }
-            }
-            (2, 2) => {
-                if data.len() >= 2 && data[0].len() >= 2 && data[1].len() >= 2 {
-                    Tensor::from_floats(
-                        [[data[0][0], data[0][1]], [data[1][0], data[1][1]]],
-                        &device,
-                    )
-                } else {
-                    panic!("Invalid 2x2 matrix data");
-                }
-            }
-            _ => panic!("Unsupported matrix dimensions: {}x{}", rows, cols),
-        }
-    }
 
     #[test]
     fn test_manifold_creation() {
@@ -186,7 +152,7 @@ mod test {
     #[test]
     fn test_gram_schmidt_orthogonalization() {
         // Test with a simple 3x2 matrix
-        let input = create_test_matrix(3, 2, vec![1.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
+        let input = create_test_matrix::<TestBackend>(3, 2, vec![1.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
 
         let result = gram_schmidt(&input);
 
@@ -232,7 +198,7 @@ mod test {
     #[test]
     fn test_gram_schmidt_single_column() {
         // Test with a single column vector
-        let input = create_test_matrix(3, 1, vec![3.0, 4.0, 0.0]);
+        let input = create_test_matrix::<TestBackend>(3, 1, vec![3.0, 4.0, 0.0]);
         let result = gram_schmidt(&input);
 
         // Should be normalized to unit length
@@ -249,8 +215,8 @@ mod test {
         );
 
         // Should be proportional to original vector
-        let expected = create_test_matrix(3, 1, vec![0.6, 0.8, 0.0]);
-        assert_tensor_close(&result, &expected, TOLERANCE);
+        let expected = create_test_matrix::<TestBackend>(3, 1, vec![0.6, 0.8, 0.0]);
+        assert_matrix_close(&result, &expected, TOLERANCE);
     }
 
     #[test]
@@ -286,7 +252,7 @@ mod test {
         // Project the tangent vector again
         let projected = SteifielsManifold::<TestBackend>::project(point.clone(), tangent.clone());
         // Should be unchanged (idempotent)
-        assert_tensor_close(&projected, &tangent, 1e-6);
+        assert_matrix_close(&projected, &tangent, 1e-6);
         // Check the tangent space property: X^T V + V^T X = 0
         let xtv = point.clone().transpose().matmul(tangent.clone());
         let vtx = tangent.clone().transpose().matmul(point.clone());
@@ -297,6 +263,10 @@ mod test {
             "Tangent space property violated: max skew = {}",
             max_skew
         );
+        assert!(
+            SteifielsManifold::is_tangent_at(point, tangent).into_scalar(),
+            "Tangent space property violated: max skew unknown"
+        )
     }
 
     #[test]
@@ -309,7 +279,7 @@ mod test {
 
         let step = 0.1;
         let retracted =
-            SteifielsManifold::<TestBackend>::retract(point.clone(), direction.clone()*step);
+            SteifielsManifold::<TestBackend>::retract(point.clone(), direction.clone() * step);
 
         // Check that the result has orthonormal columns
         let q1 = retracted.clone().slice([0..3, 0..1]);
@@ -347,15 +317,23 @@ mod test {
             "Second column not normalized after retraction: norm = {}",
             norm2
         );
+
+        assert!(SteifielsManifold::<TestBackend>::is_in_manifold(retracted)
+            .all()
+            .into_scalar());
     }
 
     #[test]
     fn test_gram_schmidt_identity_matrix() {
         // Identity matrix should remain unchanged
-        let identity = create_test_matrix(3, 3, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let identity = create_test_matrix::<TestBackend>(
+            3,
+            3,
+            vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        );
 
         let result = gram_schmidt(&identity);
-        assert_tensor_close(&result, &identity, TOLERANCE);
+        assert_matrix_close(&result, &identity, TOLERANCE);
     }
 
     #[test]
@@ -374,7 +352,7 @@ mod test {
         let gram_matrix = point.clone().transpose().matmul(point.clone());
         let identity = create_test_matrix(2, 2, vec![1.0, 0.0, 0.0, 1.0]);
 
-        assert_tensor_close(&gram_matrix, &identity, TOLERANCE);
+        assert_matrix_close(&gram_matrix, &identity, TOLERANCE);
 
         // Test projection and retraction preserve this property
         let direction = create_test_matrix(4, 2, vec![0.1, 0.0, 0.0, 0.1, 0.2, 0.3, -0.1, 0.2]);
@@ -383,7 +361,7 @@ mod test {
         let retracted = SteifielsManifold::<TestBackend>::retract(point.clone(), projected * 0.1);
 
         let retracted_gram = retracted.clone().transpose().matmul(retracted.clone());
-        assert_tensor_close(&retracted_gram, &identity, TOLERANCE);
+        assert_matrix_close(&retracted_gram, &identity, TOLERANCE);
     }
 
     #[test]
@@ -406,7 +384,9 @@ mod test {
                 .matmul(x.clone())
                 .sum();
             let grads = loss.backward();
-            let x_grad = x.grad(&grads).unwrap();
+            let x_grad = x
+                .grad(&grads)
+                .expect("The gradients do exist we just did loss.backwards()");
             // Convert gradient to autodiff backend and ensure independent tensor
             let x_grad_data = x_grad.to_data();
             let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad_data, &x.device());
@@ -420,9 +400,105 @@ mod test {
     }
 
     #[test]
-    fn test_simple_optimizer_step() {
+    fn test_optimiser_remove() {
         let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
 
+        let a = create_test_matrix(3, 3, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]);
+
+        let mut x = Tensor::<TestBackend, 2>::random(
+            [3, 3],
+            burn::tensor::Distribution::Normal(1., 1.),
+            &a.device(),
+        )
+        .require_grad();
+        for _i in 0..100 {
+            let loss = x
+                .clone()
+                .transpose()
+                .matmul(a.clone())
+                .matmul(x.clone())
+                .sum();
+            let mut grads = loss.backward();
+            let x_grad = x
+                .grad_remove(&mut grads)
+                .expect("The gradients do exist we just did loss.backwards()");
+            // Convert gradient to autodiff backend and ensure independent tensor
+            let x_grad_data = x_grad.to_data();
+            let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad_data, &x.device());
+            // Clone x to ensure independent tensor for optimizer
+            let x_clone = x.clone();
+            let (new_x, _) = optimiser.step(0.1, x_clone, x_grad_ad, None);
+            x = new_x.detach().require_grad();
+            println!("Loss: {}", loss);
+        }
+        println!("Optimised tensor: {}", x);
+    }
+
+    #[test]
+    fn test_optimiser_many() {
+        let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
+
+        let a = create_test_matrix(3, 3, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]);
+
+        let mut x = Tensor::<TestBackend, 2>::random(
+            [3, 3],
+            burn::tensor::Distribution::Normal(1., 1.),
+            &a.device(),
+        )
+        .require_grad();
+
+        fn grad_fn(
+            x: Tensor<Autodiff<NdArray>, 2>,
+            a: Tensor<Autodiff<NdArray>, 2>,
+        ) -> Tensor<Autodiff<NdArray>, 2> {
+            let loss = x.clone().transpose().matmul(a).matmul(x.clone()).sum();
+            let mut grads = loss.backward();
+            let x_grad = x
+                .grad_remove(&mut grads)
+                .expect("The gradients do exist we just did loss.backwards()");
+            // Convert gradient to autodiff backend and ensure independent tensor
+            let x_grad_ad = Tensor::<TestBackend, 2>::from_data(x_grad.to_data(), &x.device());
+            x_grad_ad
+        }
+
+        let mut state = None;
+        let x_original: Tensor<NdArray, 2> =
+            Tensor::<NdArray, 2>::from_data(x.to_data(), &Default::default());
+        let a_original: Tensor<NdArray, 2> =
+            Tensor::<NdArray, 2>::from_data(a.to_data(), &Default::default());
+        let unoptimised_loss = x_original
+            .clone()
+            .transpose()
+            .matmul(a_original.clone())
+            .matmul(x_original.clone())
+            .sum()
+            .into_scalar();
+        println!(
+            "Unoptimised tensor: {} with loss {}",
+            x_original, unoptimised_loss
+        );
+        (x, state) = optimiser.many_steps(|_| 0.1, 100, |x| grad_fn(x, a.clone()), x, state);
+        assert!(state.is_none());
+        let x_optimised: Tensor<NdArray, 2> =
+            Tensor::<NdArray, 2>::from_data(x.to_data(), &Default::default());
+        let optimised_loss = x_optimised
+            .clone()
+            .transpose()
+            .matmul(a_original)
+            .matmul(x_optimised.clone())
+            .sum()
+            .into_scalar();
+        println!(
+            "Optimised tensor: {} with loss {}",
+            x_optimised, optimised_loss
+        );
+        assert!(optimised_loss <= unoptimised_loss,
+            "The optimimisation should have lowered the loss function. It was {unoptimised_loss} before and {optimised_loss} after");
+    }
+
+    #[test]
+    fn test_simple_optimizer_step() {
+        let optimiser = ManifoldRGD::<SteifielsManifold<TestBackend>, TestBackend>::default();
         // Create simple test tensors
         let point = create_test_matrix(3, 2, vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
 

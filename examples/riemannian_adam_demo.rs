@@ -1,5 +1,5 @@
 use burn::optim::SimpleOptimizer;
-use manopt_rs::prelude::*;
+use manopt_rs::{optimizers::LessSimpleOptimizer, prelude::*};
 
 fn main() {
     println!("Testing Riemannian Adam optimizer...");
@@ -20,8 +20,20 @@ fn main() {
     let (new_tensor, state) = optimizer.step(1.0, tensor.clone(), grad, None);
 
     println!("Original tensor: {}", tensor);
-    println!("New tensor: {}", new_tensor);
+    println!("New tensor: {:.4}", new_tensor);
     println!("State initialized: {}", state.is_some());
+
+    fn grad_function<B: Backend>(_x: Tensor<B, 2>) -> Tensor<B, 2> {
+        Tensor::<B, 2>::ones([2, 2], &Default::default())
+    }
+    // Perform more optimization steps
+    let (new_tensor, state) =
+        optimizer.many_steps(|_| 1.0, 9, grad_function, tensor.clone(), state);
+    println!("After even more steps Tensor: {:.4}", new_tensor);
+    println!(
+        "After even more steps State initialized: {}",
+        state.is_some()
+    );
 
     println!("Riemannian Adam test completed successfully!");
 }
