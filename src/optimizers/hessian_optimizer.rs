@@ -1,5 +1,5 @@
 use burn::{
-    optim::SimpleOptimizer, prelude::Backend, record::Record, tensor::Tensor, LearningRate,
+    optim::SimpleOptimizer, prelude::Backend, record::Record, tensor::Tensor, optim::LearningRate,
 };
 
 /// TODO document and construct an implementation

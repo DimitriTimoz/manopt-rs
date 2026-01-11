@@ -3,7 +3,7 @@
 //! points. This way we can step using `SimpleOptimizer::step` with that gradient
 //! several times.
 use crate::prelude::*;
-use burn::{optim::SimpleOptimizer, LearningRate};
+use burn::optim::{LearningRate, SimpleOptimizer};
 
 /// A optimizer that allows for many steps with a given learning schedule
 /// and a way of evaluating the gradient function on arbitrary
