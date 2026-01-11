@@ -13,7 +13,9 @@ A high-performance Rust library for **manifold optimization** built on top of th
   - Riemannian Gradient Descent (ManifoldRGD)
 - **Multiple Manifolds**: Built-in support for common manifold structures
   - Euclidean spaces
-  - WIP
+  - Sphere (unit sphere S^(n-1))
+  - Stiefel manifold (matrices with orthonormal columns)
+  - Orthogonal group
 - **Backend Flexibility**: Works with any Burn backend (NDArray, Torch, WGPU, etc.)
 - **Type Safety**: Leverages Rust's type system for safe tensor operations
 - **High Performance**: Built on Burn's efficient tensor operations
@@ -82,6 +84,14 @@ Test the Riemannian Adam optimizer:
 cargo run --example riemannian_adam_demo
 ```
 
+### Multi-Constraint Optimization
+
+Example with multiple manifold constraints:
+
+```bash
+cargo run --example multi_constraints
+```
+
 ## Architecture
 
 ### Manifolds
@@ -107,8 +117,10 @@ Riemannian optimizers that respect manifold constraints:
 ## Supported Manifolds
 
 - ✅ **Euclidean**: Standard unconstrained optimization
-- 🚧 **Stiefel**: Matrices with orthonormal columns (in development)
-- 📋 **Planned**: Grassmann, Symmetric Positive Definite, Sphere
+- ✅ **Sphere**: Unit sphere constraints
+- ✅ **Stiefel**: Matrices with orthonormal columns
+- ✅ **Orthogonal Group**: Orthogonal matrices
+- 📋 **Planned**: Grassmann, Symmetric Positive Definite
 
 ## Contributing
 
