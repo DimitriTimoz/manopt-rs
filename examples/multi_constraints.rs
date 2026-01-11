@@ -173,25 +173,23 @@ impl<B: Backend> TestModel<B> {
 struct ManifoldAwareVisitor;
 
 impl<B: Backend> ModuleVisitor<B> for ManifoldAwareVisitor {
-    fn visit_float<const D: usize>(&mut self, id: burn::module::ParamId, tensor: &Tensor<B, D>) {
+    fn visit_float<const D: usize>(&mut self, param: &burn::module::Param<Tensor<B, D>>) {
         println!(
             "Visiting parameter: {:?} with shape: {:?}",
-            id,
-            tensor.dims()
+            param.id,
+            param.val().dims()
         );
     }
 
     fn visit_int<const D: usize>(
         &mut self,
-        _id: burn::module::ParamId,
-        _tensor: &Tensor<B, D, Int>,
+        _param: &burn::module::Param<Tensor<B, D, Int>>,
     ) {
     }
 
     fn visit_bool<const D: usize>(
         &mut self,
-        _id: burn::module::ParamId,
-        _tensor: &Tensor<B, D, Bool>,
+        _param: &burn::module::Param<Tensor<B, D, Bool>>,
     ) {
     }
 }
