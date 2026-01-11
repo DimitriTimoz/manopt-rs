@@ -7,7 +7,7 @@ use burn::module::AutodiffModule;
 use burn::optim::{adaptor::OptimizerAdaptor, LrDecayState, SimpleOptimizer};
 use burn::record::Record;
 use burn::tensor::backend::AutodiffBackend;
-use burn::LearningRate;
+use burn::optim::LearningRate;
 use std::marker::PhantomData;
 pub mod hessian_optimizer;
 pub mod many_steps;
